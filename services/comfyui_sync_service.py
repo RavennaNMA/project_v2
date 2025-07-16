@@ -46,7 +46,7 @@ class ComfyUISyncService(QObject):
         """開始同步服務"""
         self.sync_enabled = True
         self._try_connect_websocket()
-        print("✅ ComfyUI同步服務已啟動")
+        print("ComfyUI同步服務已啟動")
     
     def stop_sync(self):
         """停止同步服務"""
@@ -76,7 +76,7 @@ class ComfyUISyncService(QObject):
         if self.is_connected:
             self.is_connected = False
             self.connection_status_changed.emit(False)
-            print("❌ ComfyUI連接已斷開")
+            print("ComfyUI連接已斷開")
         if self.ws:
             self.ws = None
     
@@ -235,7 +235,7 @@ class ComfyUISyncService(QObject):
             # 發射配置更新信號
             self.config_updated.emit(new_config)
             
-            print(f"✅ 配置已同步: {len(new_config)} 個參數")
+            print(f"配置已同步: {len(new_config)} 個參數")
             
         except Exception as e:
             print(f"更新語音配置錯誤: {e}")
@@ -266,7 +266,7 @@ class ComfyUISyncService(QObject):
             # 寫回配置文件
             self._write_main_config(current_config)
             
-            print(f"📝 主配置文件已更新")
+            print(f"主配置文件已更新")
             
         except Exception as e:
             print(f"更新主配置錯誤: {e}")

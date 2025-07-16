@@ -1,7 +1,3 @@
-# ================================================================
-# TTS 語音合成系統配置文件 - 由 ComfyUI Studio 同步
-# ================================================================
-
 # 基本設定
 enabled=True
 realtime_mode=True
@@ -10,7 +6,7 @@ verbose_logging=True
 # 語音設定
 kokoro_lang_code=a
 kokoro_voice=am_onyx
-kokoro_speed=1.0
+kokoro_speed=0.8
 
 # 文字處理設定
 min_english_chars=3

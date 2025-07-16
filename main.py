@@ -14,7 +14,7 @@ from services import PlatformService
 
 # Debug 文字大小 (像素，會根據縮放係數調整)
 # 建議範圍：12-24，預設：16
-DEBUG_TEXT_SIZE = 22
+DEBUG_TEXT_SIZE = 18
 
 # 字幕文字大小 (像素，會根據縮放係數調整)  
 # 建議範圍：20-40，預設：28
@@ -26,7 +26,7 @@ CAPTION_TEXT_SIZE = 20
 
 # Loading 文字大小 (像素，會根據縮放係數調整)
 # 建議範圍：18-32，預設：24
-LOADING_TEXT_SIZE = 24
+LOADING_TEXT_SIZE = 20
 
 # ================================================================
 # TTS 語音配置

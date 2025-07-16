@@ -114,6 +114,13 @@ class SSRThread(QThread):
                 else:
                     print("Warning: Arduino controller not available for SSR1")
                 
+                # 🔥 NEW: 等待後延遲（分離SSR1和字幕顯示）
+                if self.config.ssr1_wait_after > 0:
+                    print(f"SSR1 waiting {self.config.ssr1_wait_after}ms before triggering caption display...")
+                    self.status_changed.emit(f"SSR1燈光已啟動，等待 {self.config.ssr1_wait_after}ms 後開始字幕顯示")
+                    self.msleep(self.config.ssr1_wait_after)
+                    print("SSR1 wait complete, ready to show captions")
+                
                 self.ssr1_processed = True
                 self.ssr1_ready.emit()
             

@@ -1,12 +1,13 @@
 中文名稱,參數名稱,預設值,說明
-偵測：靈敏度,detection_sensitivity,0.75,人臉偵測的靈敏度設定
+偵測：靈敏度,detection_sensitivity,0.4,人臉偵測的靈敏度設定（廣角攝像頭適用）
 偵測：所需秒數,detect_duration,3,人臉需持續偵測多久才觸發截圖
-偵測框：大小比例,detect_area_ratio,0.7,偵測框相對於臉部大小的比例
+偵測框：大小比例,detect_area_ratio,0.8,偵測框相對於臉部大小的比例
+偵測：最小臉部尺寸,min_face_area_ratio,0.001,最小臉部面積比例（適合廣角攝像頭）
 LLM 回應最大等待時間,llm_response_timeout,10,等待AI回應的最長時間
 淡入時間,screenshot_fade_in,1,截圖淡入效果時間
 停留時間,screenshot_display,5,截圖持續顯示時間
 淡出時間,screenshot_fade_out,1,截圖淡出效果時間
-打字速度（毫秒/字）,caption_typing_speed,80,字幕打字機效果速度
+打字速度（毫秒/字）,caption_typing_speed,50,字幕打字機效果速度
 每行字符限制,caption_max_chars_per_line,80,每行最大字符數（權重單位）
 中文字符權重,caption_chinese_char_weight,1.8,中文字符相對英文的權重
 字幕顯示後等待,caption_wait_after,6,幕打完後等待時間

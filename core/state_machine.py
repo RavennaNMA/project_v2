@@ -31,9 +31,10 @@ class StateMachine(QObject):
     weapon_display_requested = pyqtSignal(list)  # 武器列表
     reset_requested = pyqtSignal()
     
-    def __init__(self, config):
+    def __init__(self, config, config_loader=None):
         super().__init__()
         self.config = config
+        self.config_loader = config_loader  # 💡 新增：配置載入器引用
         self.current_state = SystemState.DETECTING
         self.detection_start_time = None
         self.face_detected = False
@@ -81,14 +82,25 @@ class StateMachine(QObject):
             self.screenshot_requested.emit()
             # 直接轉到下一狀態
             if self.no_llm_mode:
-                # No LLM 模式：跳過 AI 分析
-                default_response = {
-                    'caption': 'Emergency defense protocol activated.',
-                    'caption_tc': '緊急防禦協議啟動。',
-                    'weapons': ['01', '02']
-                }
+                # 💡 No LLM 模式：使用可配置的調試回應
+                if self.config_loader:
+                    debug_response = self.config_loader.get_debug_response()
+                    print(f"🔧 State Machine Debug Mode:")
+                    print(f"   武器: {debug_response.get('weapons', [])}")
+                else:
+                    # 備用硬編碼回應
+                    debug_response = {
+                        'caption': 'Emergency defense protocol activated.',
+                        'caption_tc': '緊急防禦協議啟動。',
+                        'weapons': ['01', '02']
+                    }
+                
+                # 💡 修復：No-LLM模式下也要設置pending_weapons
+                self.pending_weapons = debug_response.get('weapons', [])
+                print(f"🔧 No-LLM Mode: 設置pending_weapons = {self.pending_weapons}")
+                    
                 self.transition_to(SystemState.CAPTION)
-                self.caption_display_requested.emit(default_response)
+                self.caption_display_requested.emit(debug_response)
             else:
                 self.transition_to(SystemState.LLM_LOADING)
                 
@@ -163,6 +175,7 @@ class StateMachine(QObject):
     def on_spotlight_ready(self):
         """聚光燈準備完成，可以顯示武器"""
         if self.current_state == SystemState.SPOTLIGHT:
+            print(f"🎯 聚光燈準備完成，發送武器展示請求: {self.pending_weapons}")
             self.transition_to(SystemState.IMG_SHOW)
             self.weapon_display_requested.emit(self.pending_weapons)
             

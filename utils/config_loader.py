@@ -13,6 +13,7 @@ class ConfigLoader(QObject):
         super().__init__()
         self.period_config = {}
         self.weapon_config = {}
+        self.debug_config = {}  # 💡 新增：調試配置
         
     def load_period_config(self):
         """載入時間設定"""
@@ -114,6 +115,57 @@ class ConfigLoader(QObject):
             
         return weapon_list
         
+    def load_debug_config(self):
+        """💡 新增：載入調試模式設定"""
+        config_path = "config/nollmdebug.csv"
+        
+        if not os.path.exists(config_path):
+            print(f"找不到調試設定檔: {config_path}")
+            return self._get_default_debug_config()
+            
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    param_name = row['參數名稱']
+                    value = row['預設值']
+                    
+                    # 處理不同類型的值
+                    if param_name in ['debug_arduino_enabled', 'debug_verbose']:
+                        # 布林值
+                        self.debug_config[param_name] = value.lower() in ['true', '1', 'yes']
+                    elif param_name in ['debug_weapon_1', 'debug_weapon_2', 'debug_weapon_3']:
+                        # 武器編號字串
+                        self.debug_config[param_name] = value.strip()
+                    else:
+                        # 字串值（字幕內容）
+                        self.debug_config[param_name] = value
+                    
+            print(f"載入調試設定: {len(self.debug_config)} 項")
+            return self.debug_config
+            
+        except Exception as e:
+            print(f"載入調試設定失敗: {e}")
+            return self._get_default_debug_config()
+            
+    def get_debug_response(self):
+        """💡 新增：取得調試模式的預設回應"""
+        if not self.debug_config:
+            self.load_debug_config()
+            
+        # 組合武器列表
+        weapons = []
+        for i in range(1, 4):  # weapon_1, weapon_2, weapon_3
+            weapon_key = f'debug_weapon_{i}'
+            if weapon_key in self.debug_config and self.debug_config[weapon_key]:
+                weapons.append(self.debug_config[weapon_key])
+        
+        return {
+            'caption': self.debug_config.get('debug_caption_en', 'Emergency defense protocol activated.'),
+            'caption_tc': self.debug_config.get('debug_caption_tc', '緊急防禦協議啟動。'),
+            'weapons': weapons
+        }
+        
     def _get_default_period_config(self):
         """預設時間設定"""
         return {
@@ -168,6 +220,18 @@ class ConfigLoader(QObject):
                 'image_display': 3.0,
                 'image_fade_out': 1.0
             }
+        }
+        
+    def _get_default_debug_config(self):
+        """💡 新增：預設調試設定"""
+        return {
+            'debug_caption_en': 'Emergency defense protocol activated. Scanning for threats.',
+            'debug_caption_tc': '緊急防禦協議啟動。正在掃描威脅。',
+            'debug_weapon_1': '01',
+            'debug_weapon_2': '02', 
+            'debug_weapon_3': '03',
+            'debug_arduino_enabled': True,
+            'debug_verbose': True
         }
         
     def save_period_config(self):

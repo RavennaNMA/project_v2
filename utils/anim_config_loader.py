@@ -116,46 +116,46 @@ class AnimConfigLoader:
         """使用默認配置"""
         self.config = {
             'BASIC': {
-                'position_smooth': 0.08,
-                'state1_duration': 60,
-                'state2_duration': 60,
+                'position_smooth': 0.03,
+                'state1_duration': 200,
+                'state2_duration': 200,
                 'state3_duration': 60,
-                'state4_duration': 60,
-                'frame_size_multiplier': 1.5
+                'state4_duration': 240,
+                'frame_size_multiplier': 1.3
             },
             'STATE1': {
-                'outside_smooth': 0.12,
+                'outside_smooth': 0.05,
                 'corner_length_ratio': 0.07,
                 'line_thickness': 1
             },
             'STATE2': {
-                'outside_smooth': 0.12,
-                'inner_smooth': 0.1,
+                'outside_smooth': 0.05,
+                'inner_smooth': 0.04,
                 'inner_alpha': 50,
                 'inner_size_ratio': 0.9,
                 'corner_length_ratio': 0.07,
                 'line_thickness': 1
             },
             'STATE3': {
-                'outside_smooth': 0.12,
-                'inner_smooth': 0.1,
-                'cross_start_smooth': 0.08,
+                'outside_smooth': 0.05,
+                'inner_smooth': 0.04,
+                'cross_start_smooth': 0.04,
                 'cross_length_ratio_h': 0.59,
                 'cross_length_ratio_w': 0.55,
                 'corner_length_ratio': 0.07,
-                'line_thickness': 1.5,
+                'line_thickness': 1.25,
                 'inner_alpha': 50,
                 'inner_size_ratio': 0.9
             },
             'STATE4': {
-                'outside_smooth': 0.12,
-                'inner_smooth': 0.1,
-                'cross_start_smooth': 0.08,
-                'cross_end_smooth': 0.12,
+                'outside_smooth': 0.05,
+                'inner_smooth': 0.04,
+                'cross_start_smooth': 0.04,
+                'cross_end_smooth': 0.05,
                 'cross_length_ratio_h': 0.59,
                 'cross_length_ratio_w': 0.55,
                 'corner_length_ratio': 0.07,
-                'line_thickness': 2
+                'line_thickness': 1.5
             },
             'VISUAL': {
                 'color_r': 255,

@@ -11,17 +11,26 @@ from utils import AnimConfigLoader
 
 
 class VisualRect:
-    """視覺矩形動畫類 - 完全基於 test_frame_effect/text_camera3.py 實現"""
+    """視覺矩形動畫類 - 完全基於參考代碼實現"""
     
     def __init__(self, x, y, w, h, config):
         self.config = config
+        
+        # 🔧 修正：將矩形轉換為正方形，以較大的邊為基準
+        face_size = max(w, h)
+        
+        # 從配置獲取框放大倍數 (配置檔案中設定的值)
+        size_multiplier = self.config.get_float('BASIC', 'frame_size_multiplier', 1.3)
+        
+        # 🔧 修正：使用正方形尺寸
+        target_w = face_size * size_multiplier
+        target_h = face_size * size_multiplier
+        
+        # ✅ 初始化，但使用配置檔案的參數
         self.target_x = x
         self.target_y = y
-        
-        # 從配置獲取框放大倍數 (默認1.5倍)
-        size_multiplier = self.config.get_float('BASIC', 'frame_size_multiplier', 1.5)
-        self.target_w = w * size_multiplier
-        self.target_h = h * size_multiplier
+        self.target_w = target_w
+        self.target_h = target_h
         
         self.x = x
         self.y = y
@@ -34,82 +43,101 @@ class VisualRect:
         self.state = 0
         self.start_line = 0
         self.end_line = 0
-        self.max_time = 0  # 記錄最大時間，避免重置
         
-        # 從設定檔載入動畫參數
-        self.position_smooth = self.config.get_float('BASIC', 'position_smooth', 0.08)
-        self.state1_duration = self.config.get_int('BASIC', 'state1_duration', 60)
-        self.state2_duration = self.config.get_int('BASIC', 'state2_duration', 60)
+        # ✅ 從配置檔案讀取動畫時長（支援你的700幀設計）
+        self.state1_duration = self.config.get_int('BASIC', 'state1_duration', 200)
+        self.state2_duration = self.config.get_int('BASIC', 'state2_duration', 200) 
         self.state3_duration = self.config.get_int('BASIC', 'state3_duration', 60)
-        self.state4_duration = self.config.get_int('BASIC', 'state4_duration', 60)
+        self.state4_duration = self.config.get_int('BASIC', 'state4_duration', 240)
         
-        # 計算總動畫時長
-        self.total_duration = self.state1_duration + self.state2_duration + self.state3_duration + self.state4_duration
+        # 計算累積時間點
+        self.state1_end = self.state1_duration
+        self.state2_end = self.state1_end + self.state2_duration
+        self.state3_end = self.state2_end + self.state3_duration
+        self.state4_end = self.state3_end + self.state4_duration
+        
+        print(f"動畫時長: State1={self.state1_duration}, State2={self.state2_duration}, State3={self.state3_duration}, State4={self.state4_duration} (總計{self.state4_end}幀)")
         
     def update(self, target_x, target_y, target_w, target_h):
-        """更新目標位置和尺寸"""
-        # 從配置獲取框放大倍數
-        size_multiplier = self.config.get_float('BASIC', 'frame_size_multiplier', 1.5)
+        """更新邏輯 - 使用配置檔案的平滑參數"""
+        # 🔧 修正：將矩形轉換為正方形，以較大的邊為基準
+        face_size = max(target_w, target_h)
         
-        # 更新目標位置和尺寸
+        # 從配置獲取框放大倍數
+        size_multiplier = self.config.get_float('BASIC', 'frame_size_multiplier', 1.3)
+        
+        # 🔧 修正：使用正方形尺寸
+        square_size = face_size * size_multiplier
+        
+        # ✅ 更新目標
         self.target_x = target_x
         self.target_y = target_y
-        self.target_w = target_w * size_multiplier
-        self.target_h = target_h * size_multiplier
-       
-        # 使用設定檔中的位置平滑參數 - 更穩定的平滑
-        self.x += (self.target_x - self.x) * self.position_smooth
-        self.y += (self.target_y - self.y) * self.position_smooth
-       
-        # 穩定的時間計數器 - 只增加，不重置
-        self.time_count += 1
-        self.max_time = max(self.max_time, self.time_count)
+        self.target_w = square_size
+        self.target_h = square_size
         
-        # 動畫完成後保持在最終狀態，避免重置
-        if self.time_count >= self.total_duration:
-            self.state = 4  # 保持在最終狀態
-        elif self.time_count < self.state1_duration:
+        # ✅ 使用配置檔案的位置平滑參數
+        position_smooth = self.config.get_float('BASIC', 'position_smooth', 0.03)
+        self.x += (self.target_x - self.x) * position_smooth
+        self.y += (self.target_y - self.y) * position_smooth
+        
+        # ✅ 時間計數
+        self.time_count += 1
+        
+        # ✅ 使用配置檔案的狀態邏輯（支援你的700幀設計）
+        if self.time_count < self.state1_end:
             self.state = 1
-        elif self.time_count < self.state1_duration + self.state2_duration:
+        elif self.time_count < self.state2_end:
             self.state = 2
-        elif self.time_count < self.state1_duration + self.state2_duration + self.state3_duration:
+        elif self.time_count < self.state3_end:
             self.state = 3
-        else:
+        elif self.time_count < self.state4_end:
             self.state = 4
-            
-        # 狀態1: 外框角落線條出現
-        if self.state >= 1:
-            outside_smooth = self.config.get_float('STATE1', 'outside_smooth', 0.12)
+        # ✅ 關鍵：到達最終狀態後保持在state 4，不重置
+        
+        # ✅ 使用配置檔案的動畫平滑參數
+        if self.state == 1:
+            outside_smooth = self.config.get_float('STATE1', 'outside_smooth', 0.05)
             self.outside_w += (self.target_w - self.outside_w) * outside_smooth
             self.outside_h += (self.target_h - self.outside_h) * outside_smooth
-            
-        # 狀態2: 內框出現 - 保持之前狀態的效果
-        if self.state >= 2:
-            inner_smooth = self.config.get_float('STATE2', 'inner_smooth', 0.1)
+        if self.state == 2:
+            outside_smooth = self.config.get_float('STATE2', 'outside_smooth', 0.05)
+            inner_smooth = self.config.get_float('STATE2', 'inner_smooth', 0.04)
+            self.outside_w += (self.target_w - self.outside_w) * outside_smooth
+            self.outside_h += (self.target_h - self.outside_h) * outside_smooth
             self.w += (self.target_w - self.w) * inner_smooth
             self.h += (self.target_h - self.h) * inner_smooth
-            
-        # 狀態3: 十字線開始出現 - 保持之前狀態的效果
-        if self.state >= 3:
-            cross_start_smooth = self.config.get_float('STATE3', 'cross_start_smooth', 0.08)
+        if self.state == 3:
+            outside_smooth = self.config.get_float('STATE3', 'outside_smooth', 0.05)
+            inner_smooth = self.config.get_float('STATE3', 'inner_smooth', 0.04)
+            cross_start_smooth = self.config.get_float('STATE3', 'cross_start_smooth', 0.04)
+            self.outside_w += (self.target_w - self.outside_w) * outside_smooth
+            self.outside_h += (self.target_h - self.outside_h) * outside_smooth
+            self.w += (self.target_w - self.w) * inner_smooth
+            self.h += (self.target_h - self.h) * inner_smooth
             self.start_line += (1 - self.start_line) * cross_start_smooth
-            
-        # 狀態4: 十字線完全延伸 - 保持之前狀態的效果
-        if self.state >= 4:
-            cross_end_smooth = self.config.get_float('STATE4', 'cross_end_smooth', 0.12)
+        if self.state == 4:
+            outside_smooth = self.config.get_float('STATE4', 'outside_smooth', 0.05)
+            inner_smooth = self.config.get_float('STATE4', 'inner_smooth', 0.04)
+            cross_start_smooth = self.config.get_float('STATE4', 'cross_start_smooth', 0.04)
+            cross_end_smooth = self.config.get_float('STATE4', 'cross_end_smooth', 0.05)
+            self.outside_w += (self.target_w - self.outside_w) * outside_smooth
+            self.outside_h += (self.target_h - self.outside_h) * outside_smooth
+            self.w += (self.target_w - self.w) * inner_smooth
+            self.h += (self.target_h - self.h) * inner_smooth
+            self.start_line += (1 - self.start_line) * cross_start_smooth
             self.end_line += (1 - self.end_line) * cross_end_smooth
 
     def draw(self, frame):
-        """繪製動畫框 - 完全基於 test_frame_effect 實現"""
-        # 使用設定檔中的閃爍機率
-        flicker_prob = self.config.get_float('VISUAL', 'flicker_probability', 0.2)
-        show = random.random() > flicker_prob
+        """繪製邏輯 - 使用配置檔案的閃爍參數"""
+        # ✅ 使用配置檔案的閃爍機率
+        flicker_probability = self.config.get_float('VISUAL', 'flicker_probability', 0.2)
+        show = random.random() > flicker_probability
         
         if show and (self.state in [1, 2, 3, 4]):
             # 使用設定檔中的顏色 (BGR格式)
             color = self.config.get_color_bgr()
             
-            # 狀態1和以後: 繪製角落線條
+            # 繪製角落線條
             self._draw_corner_lines(frame, color)
             
         # 狀態2和3: 繪製內框
@@ -249,11 +277,6 @@ class DetectionOverlay(QWidget):
         # 檢測框列表
         self.visual_rects = []
         
-        # 動畫定時器 - 60 FPS
-        self.animation_timer = QTimer()
-        self.animation_timer.timeout.connect(self.update_animation)
-        self.animation_timer.start(16)  # ~60 FPS (1000ms / 60fps = 16.67ms)
-        
         # 當前檢測到的人臉
         self.current_faces = []
         self.has_faces = False
@@ -263,64 +286,38 @@ class DetectionOverlay(QWidget):
         self.last_fps_update = 0
         self.fps = 0
         
-        print(f"檢測框動畫初始化完成，總動畫時長: {self.anim_config.get_total_duration()} 幀")
+        print(f"檢測框動畫初始化完成，使用主循環更新模式，支援高品質700幀動畫（60 FPS）")
     
-    def update_faces(self, faces):
-        """更新檢測到的人臉"""
-        self.current_faces = faces
+    def update_visual_rects_main_loop(self, faces):
+        """主循環更新方法 - 完全按照參考代碼邏輯"""
+        # 更新檢測狀態
         new_has_faces = len(faces) > 0
-        
-        # 發送檢測狀態變化信號
         if new_has_faces != self.has_faces:
             self.has_faces = new_has_faces
             self.detection_updated.emit(self.has_faces)
         
-        # 更新視覺矩形
-        self._update_visual_rects()
-    
-    def _update_visual_rects(self):
-        """更新視覺矩形列表"""
-        current_count = len(self.visual_rects)
-        needed_count = len(self.current_faces)
-        
-        # 添加新的矩形
-        while len(self.visual_rects) < needed_count:
-            face = self.current_faces[len(self.visual_rects)]
-            x, y, w, h = face
-            center_x = x + w // 2
-            center_y = y + h // 2
-            
-            rect = VisualRect(center_x, center_y, w, h, self.anim_config)
-            self.visual_rects.append(rect)
-        
-        # 移除多餘的矩形
-        self.visual_rects = self.visual_rects[:needed_count]
-        
-        # 更新現有矩形的目標位置
-        for i, rect in enumerate(self.visual_rects):
-            if i < len(self.current_faces):
-                x, y, w, h = self.current_faces[i]
+        # 更新視覺效果矩形
+        while len(self.visual_rects) > len(faces):
+            self.visual_rects.pop()
+        while len(self.visual_rects) < len(faces):
+            if len(faces) > len(self.visual_rects):
+                x, y, w, h = faces[len(self.visual_rects)]
+                # 轉換為中心點座標
                 center_x = x + w // 2
                 center_y = y + h // 2
-                rect.update(center_x, center_y, w, h)
+                rect = VisualRect(center_x, center_y, w, h, self.anim_config)
+                self.visual_rects.append(rect)
+                print(f"創建新的檢測框動畫 (總數: {len(self.visual_rects)})")
         
-    def update_animation(self):
-        """更新動畫幀"""
-        # 只有在有檢測框時才進行動畫更新
-        if self.visual_rects:
-            # 更新每個視覺矩形的動畫狀態
-            for rect in self.visual_rects:
-                # 如果有當前人臉數據，繼續更新位置
-                if self.current_faces:
-                    for i, face in enumerate(self.current_faces):
-                        if i < len(self.visual_rects):
-                            x, y, w, h = face
-                            center_x = x + w // 2
-                            center_y = y + h // 2
-                            self.visual_rects[i].update(center_x, center_y, w, h)
-            
-            # 觸發重繪
-            self.update()
+        for i, (x, y, w, h) in enumerate(faces):
+            if i < len(self.visual_rects):
+                # 轉換為中心點座標
+                center_x = x + w // 2
+                center_y = y + h // 2
+                self.visual_rects[i].update(center_x, center_y, w, h)
+        
+        # 更新當前人臉列表
+        self.current_faces = faces
         
         # 更新FPS統計
         self.frame_count += 1
@@ -330,6 +327,20 @@ class DetectionOverlay(QWidget):
             self.fps = self.frame_count
             self.frame_count = 0
             self.last_fps_update = current_time
+    
+    def update_faces(self, faces):
+        """保留的相容性方法 - 重定向到主循環更新"""
+        self.update_visual_rects_main_loop(faces)
+    
+    def update_animation(self):
+        """移除獨立動畫更新 - 現在在主循環中統一處理"""
+        # 這個方法現在只用於調試，實際更新在 update_visual_rects_main_loop 中
+        pass
+    
+    def _update_visual_rects(self):
+        """移除獨立的矩形更新 - 現在在主循環中統一處理"""
+        # 這個方法不再需要，所有更新邏輯都在 update_visual_rects_main_loop 中
+        pass
     
     def draw_on_frame(self, frame):
         """在OpenCV幀上繪製檢測框"""
@@ -343,16 +354,11 @@ class DetectionOverlay(QWidget):
         return frame
     
     def clear_detections(self):
-        """清除所有檢測框"""
-        self.visual_rects.clear()
-        self.current_faces.clear()
-        if self.has_faces:
-            self.has_faces = False
-            self.detection_updated.emit(False)
-        self.update()
+        """清除所有檢測框 - 按照參考代碼邏輯"""
+        self.update_visual_rects_main_loop([])  # 空的人臉列表
     
     def reload_config(self):
-        """重新載入動畫配置"""
+        """重新載入動畫配置 - 不重置動畫進度"""
         print("重新載入檢測框動畫配置...")
         self.anim_config.reload_config()
         
@@ -363,21 +369,22 @@ class DetectionOverlay(QWidget):
             for key, error in config_errors.items():
                 print(f"  {error}")
         
-        # 重置所有動畫狀態
         for rect in self.visual_rects:
-            rect.config = self.anim_config
-            rect.time_count = 0
-            rect.max_time = 0
-            rect.state = 0
+            rect.config = self.anim_confi
         
-        print(f"配置重載完成，新動畫時長: {self.anim_config.get_total_duration()} 幀")
+        print(f"配置重載完成，動畫狀態保持不變")
     
     def get_animation_info(self):
         """獲取動畫信息"""
+        # 從第一個矩形獲取總時長
+        total_duration = 700  # 預設值
+        if self.visual_rects:
+            total_duration = self.visual_rects[0].state4_end
+            
         info = {
             'total_rects': len(self.visual_rects),
             'animation_fps': self.fps,
-            'total_duration': self.anim_config.get_total_duration(),
+            'total_duration': total_duration,  # 使用配置檔案的實際總時長
             'has_faces': self.has_faces
         }
         
@@ -386,7 +393,7 @@ class DetectionOverlay(QWidget):
             info.update({
                 'current_state': rect.state,
                 'time_count': rect.time_count,
-                'animation_progress': min(100, (rect.time_count / rect.total_duration) * 100)
+                'animation_progress': min(100, (rect.time_count / total_duration) * 100)  # 基於實際總時長
             })
         
         return info

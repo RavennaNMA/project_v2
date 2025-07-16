@@ -1,16 +1,16 @@
-# 語音修改配置檔案 - 由 ComfyUI Studio 同步
+# 語音修改配置
 voice_mod_enabled=True
-voice_profile=Robot
-profile_intensity=0.7
+voice_profile=Custom
+profile_intensity=1.0
 manual_mode=True
-effect_blend=0.10000000000000002
-output_volume=0.0
-pitch_shift=1.5
+effect_blend=0.4000000000000001
+output_volume=4.716374520562923
+pitch_shift=-0.5
 formant_shift=0.0
-reverb_amount=0.0
-echo_delay=0.0
-distortion=0.0
-compression=0.0
+reverb_amount=0.010000000000000002
+echo_delay=0.010000000000000002
+distortion=0.10000000000000002
+compression=0.10000000000000002
 eq_bass=0.0
 eq_mid=0.0
 eq_treble=0.0

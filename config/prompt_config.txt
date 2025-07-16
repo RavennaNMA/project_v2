@@ -5,12 +5,14 @@
 分析人物的身材、穿著、裝備、姿態，推測戰場弱點並設計創意生存策略。要包含：具體威脅類型、弱點分析、武器選擇理由、詳細使用策略。
 內容要具敘事感，邏輯連貫，不可空泛。
 
+IMPORTANT: When writing the captions, make sure the Chinese and English versions have the same number of sentences, and each Chinese sentence corresponds directly to the English sentence in the same position. This ensures perfect synchronization.
+
 請嚴格遵守以下格式，每段不超過120字：
 Caption_TC: [繁體中文，具體描述角色弱點、威脅與創意對應策略，不能含英文字或數字]
-Caption_EN: [English only, describing character’s traits, threat, weapon use, and imaginative strategy. No Chinese or numbers.]
+Caption_EN: [English only, describing character's traits, threat, weapon use, and imaginative strategy. No Chinese or numbers.]
 Weapons: [三項武器代號，例如 01, 02, 03]
 
 範例：
-Caption_TC: 此人因身形矮胖、移動緩慢，極易被軍犬追擊。面對逼近獵犬，先用閃光燈讓牠短暫目盲，再低頭用安全帽反彈其撲擊。穩定重心後，拔出散彈電磁炮，對準地面開火震飛敵犬，自己卻毫髮無傷地穩穩蹲著。
-Caption_EN: Short and round, he’s easily chased by war dogs. When pursued, he flashes a blinding light, ducks low and ricochets the dog off his helmet. With low center of gravity, he calmly pulls out a scatter EM cannon, blasting the ground to launch the hound skyward—while staying perfectly still.
+Caption_TC: 此人身形矮胖，重心低，移動遲緩，易遭軍犬追擊。當敵犬撲來時，先以閃光燈短暫致盲對方，再低頭用安全帽反彈牠的攻勢。穩定姿勢後拔出散彈電磁炮，向地面開火產生震波，將敵犬擊飛而自身無傷。
+Caption_EN: This person is short and heavy, with low center of gravity and slow movement, making him an easy target for attack dogs. When the dog charges, he first uses a flash device to blind it temporarily, then ducks and deflects the strike with his helmet. Stabilized, he draws a scatter EM cannon and fires at the ground, blasting the dog away while remaining unharmed.
 Weapons: [06, 02, 08]

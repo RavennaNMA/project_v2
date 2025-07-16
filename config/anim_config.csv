@@ -1,15 +1,14 @@
-# Animation Configuration File (CSV Format)
-# 動畫設定檔 (CSV 格式)
+# Animation Configuration
 # 
 # 使用說明：
 # 1. 修改這個檔案可以即時調整動畫效果
 # 2. 參數範圍：
-#    - 平滑度參數(smooth): 0.0-1.0，值越大變化越快
-#    - 持續時間(duration): 正整數，表示幀畫面數
-#    - 透明度(alpha): 0-255，0完全透明，255完全不透明
-#    - 比例參數(ratio): 0.0-1.0，表示相對大小
-#    - 線條粗細(thickness): 正整數，像素數
-# 3. 修改後儲存檔案，程式會在下次檢測到人臉時套用新設定
+#    - smooth: 0.0-1.0，值越大變化越快
+#    - duration: 正整數，幀數
+#    - alpha: 0-255，0完全透明，255完全不透明
+#    - ratio: 0.0-1.0，表示相對大小
+#    - thickness: 正整數
+# 3. 修改後儲存檔案，程式會在下次套用新設定
 #
 # 四個動畫狀態說明：
 # 狀態1: 外框角落線條逐漸出現  - 框尺寸放大1.5倍
@@ -21,11 +20,11 @@
 Section,Key,Value,Description
 
 # 基本動畫參數 - 更穩定的設定
-BASIC,position_smooth,0.03,位置變化平滑度 降低位置變化速度更穩定
-BASIC,state1_duration,200,外框角落線條出現時間(幀)
-BASIC,state2_duration,200,內框出現時間(幀)
-BASIC,state3_duration,60,十字線開始延伸時間(幀)
-BASIC,state4_duration,240,十字線完全延伸時間(幀)
+BASIC,position_smooth,0.04,位置變化平滑度 降低位置變化速度更穩定
+BASIC,state1_duration,150,外框角落線條出現時間(幀)
+BASIC,state2_duration,150,內框出現時間(幀)
+BASIC,state3_duration,30,十字線開始延伸時間(幀)
+BASIC,state4_duration,200,十字線完全延伸時間(幀)
 BASIC,frame_size_multiplier,1.3,檢測框放大倍數
 
 # 狀態1設定 - 外框角落線條出現

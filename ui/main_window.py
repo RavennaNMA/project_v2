@@ -26,7 +26,7 @@ class MainWindow(QMainWindow):
         # 設定縮放因子和視窗尺寸
         self.scale_factor = 0.5 if startup_params.get('mini_mode', False) else 1.0
         
-        # 💪 修正視窗尺寸：恢復豎屏格式1080x1920，適配直立螢幕
+        # 修正視窗尺寸：恢復豎屏格式1080x1920，適配直立螢幕
         if startup_params.get('fullscreen', False):
             # 全螢幕模式使用螢幕尺寸
             from PyQt6.QtWidgets import QApplication
@@ -37,11 +37,11 @@ class MainWindow(QMainWindow):
                 self.window_height = screen_geometry.height()
             else:
                 # 備用尺寸（您的螢幕尺寸）
-                self.window_width = 1200
+                self.window_width = 1080
                 self.window_height = 1920
         else:
-            # 視窗模式使用豎屏比例，適合您的1200x1920直立螢幕
-            base_width = 1200   # 您的螢幕寬度
+            # 視窗模式使用豎屏比例，適合您的1080x1920直立螢幕
+            base_width = 1080   # 您的螢幕寬度
             base_height = 1920  # 您的螢幕高度  
             self.window_width = int(base_width * self.scale_factor)
             self.window_height = int(base_height * self.scale_factor)
@@ -53,6 +53,13 @@ class MainWindow(QMainWindow):
         self.config = self.config_loader.load_period_config()
         self.weapon_config = self.config_loader.load_weapon_config()
         
+        # 新增：顯示武器配置載入信息（對no-llm調試很重要）
+        print(f"已載入 weapon_config.csv: {len(self.weapon_config)} 個武器")
+        if self.startup_params['no_llm_mode']:
+            print(f"No-LLM調試模式將使用以下武器配置:")
+            for weapon_id, info in self.weapon_config.items():
+                print(f"   武器{weapon_id}: {info['name']} (Pin: {info['pin']}, Image: {info['image_path']})")
+        
         # 初始化元件
         self.init_components()
         self.setup_ui()
@@ -63,8 +70,8 @@ class MainWindow(QMainWindow):
         
     def init_components(self):
         """初始化系統元件"""
-        # 核心元件
-        self.state_machine = StateMachine(self.config)
+        # 核心元件 - 傳遞config_loader以支持調試模式
+        self.state_machine = StateMachine(self.config, self.config_loader)
         self.camera_manager = CameraManager()
         self.face_detector = FaceDetector(self.config)
         
@@ -240,7 +247,7 @@ class MainWindow(QMainWindow):
             # 連接文字片段信號 - 提供更精細的同步
             self.tts_service.tts_word_progress.connect(self.on_tts_word_progress)
             
-            print("✅ TTS 即時字幕同步信號已連接")
+            print("TTS 即時字幕同步信號已連接")
             
         # SSR控制器信號
         self.ssr_controller.spotlight_ready.connect(self.on_spotlight_ready)
@@ -261,7 +268,7 @@ class MainWindow(QMainWindow):
         self.state_machine.start()
         
     def process_frame(self, frame):
-        """處理相機畫面"""
+        """處理相機畫面 - 修正檢測和動畫更新邏輯，完全匹配參考代碼"""
         self.frame_count += 1
         
         # 隱藏載入提示
@@ -269,38 +276,30 @@ class MainWindow(QMainWindow):
             self.first_frame_received = True
             self.loading_label.hide()
         
-        # 從 1920x1080 裁切出中間的 1080x1920 豎屏區域
-        cropped_frame = self.crop_frame_to_portrait(frame)
+        # 🚀 FPS 優化：使用更快的裁切和縮放
+        cropped_frame = self.crop_frame_to_portrait_fast(frame)
         
         # 根據 mini mode 進行縮放
         if self.startup_params.get('mini_mode', False):
-            target_width = int(1200 * 0.5)
+            target_width = int(1080 * 0.5)
             target_height = int(1920 * 0.5)
         else:
-            target_width = 1200
+            target_width = 1080
             target_height = 1920
         
-        # 縮放到目標尺寸
+        # 🚀 FPS 優化：只在必要時縮放，使用更快的插值
         if cropped_frame.shape[1] != target_width or cropped_frame.shape[0] != target_height:
             cropped_frame = cv2.resize(cropped_frame, (target_width, target_height), 
-                                     interpolation=cv2.INTER_LINEAR)
-        
-        # 在幀上繪製檢測框
-        final_frame = self.detection_overlay.draw_on_frame(cropped_frame)
-        
-        # 顯示畫面
-        qimage = CameraManager.frame_to_qimage(final_frame)
-        pixmap = QPixmap.fromImage(qimage)
-        self.camera_label.setPixmap(pixmap)
-        
-        # 人臉偵測
+                                     interpolation=cv2.INTER_LINEAR)  # 已經是最快的品質插值
+
         try:
             detection_result = self.face_detector.process_frame(frame)
             current_state = self.state_machine.current_state
             
+            faces = []
             if detection_result:
                 # 調整偵測結果座標
-                adjusted_bbox = self.adjust_detection_coordinates(detection_result, frame.shape, target_width, target_height)
+                adjusted_bbox = self.adjust_detection_coordinates_fast(detection_result, frame.shape, target_width, target_height)
                 if adjusted_bbox:
                     self.last_detection_bbox = adjusted_bbox
                     
@@ -308,7 +307,6 @@ class MainWindow(QMainWindow):
                     if current_state == SystemState.DETECTING:
                         self.state_machine.update_face_detection(True)
                     
-                    # 更新偵測框動畫
                     if current_state not in [SystemState.CAPTION, SystemState.SPOTLIGHT, SystemState.IMG_SHOW]:
                         # 將檢測框向上偏移一點（約框高度的20%）
                         frame_offset_y = int(adjusted_bbox['height'] * 0.2)
@@ -319,94 +317,97 @@ class MainWindow(QMainWindow):
                         
                         face_rect = (int(adjusted_bbox['x']), adjusted_y, 
                                    int(adjusted_bbox['width']), int(adjusted_bbox['height']))
-                        self.detection_overlay.update_faces([face_rect])
-                    else:
-                        self.detection_overlay.clear_detections()
+                        faces.append(face_rect)
                 else:
                     self.last_detection_bbox = None
                     if current_state == SystemState.DETECTING:
                         self.state_machine.update_face_detection(False)
-                    self.detection_overlay.clear_detections()
             else:
                 self.last_detection_bbox = None
                 if current_state == SystemState.DETECTING:
                     self.state_machine.update_face_detection(False)
-                self.detection_overlay.clear_detections()
+                    
         except Exception as e:
             print(f"Face detection processing error: {e}")
+            faces = []
             self.last_detection_bbox = None
             if hasattr(self, 'state_machine'):
                 current_state = self.state_machine.current_state
                 if current_state == SystemState.DETECTING:
                     self.state_machine.update_face_detection(False)
-            if hasattr(self, 'detection_overlay'):
-                self.detection_overlay.clear_detections()
-                
-    def crop_frame_to_portrait(self, frame):
-        """從1920x1080相機畫面裁切出正確比例的1200x1920豎屏區域"""
+        
+        # 按照參考代碼：在主循環中更新視覺矩形
+        self.detection_overlay.update_visual_rects_main_loop(faces)
+        
+        # 在幀上繪製檢測框
+        final_frame = self.detection_overlay.draw_on_frame(cropped_frame)
+        
+        # 顯示畫面
+        qimage = CameraManager.frame_to_qimage(final_frame)
+        pixmap = QPixmap.fromImage(qimage)
+        self.camera_label.setPixmap(pixmap)
+        
+    def crop_frame_to_portrait_fast(self, frame):
+        """FPS 優化：快速版本的豎屏裁切"""
         height, width = frame.shape[:2]
+        
+        # 快速檢查：如果已經是正確尺寸，直接返回
+        if width == 1080 and height == 1920:
+            return frame
         
         # 確保輸入是標準相機格式
         if width != 1920 or height != 1080:
             frame = cv2.resize(frame, (1920, 1080), interpolation=cv2.INTER_LINEAR)
             height, width = 1080, 1920
         
-        # 💪 修復臉部比例：適應1200x1920螢幕比例
-        # 目標比例 1200:1920 = 5:8
-        # 從1080高度計算對應的5:8寬度：1080 * 5/8 = 675像素
-        target_crop_width = int(1080 * 5 / 8)  # 675像素
+        target_crop_width = 675  # 預計算，避免重複計算
         
-        # 從1920x1080裁切出中間的675x1080區域
-        crop_x = (1920 - target_crop_width) // 2  # 居中裁切
+        crop_x = 622  # 預計算：(1920 - 675) // 2
         crop_y = 0
         
-        # 裁切出正確比例的區域
+        # 🚀 使用更高效的切片操作
         cropped_frame = frame[crop_y:crop_y + 1080, crop_x:crop_x + target_crop_width]
         
-        # 縮放到目標尺寸1200x1920（保持正確比例，不會拉伸變形）
-        portrait_frame = cv2.resize(cropped_frame, (1200, 1920), interpolation=cv2.INTER_LINEAR)
+        # 縮放到目標尺寸1080x1920（保持正確比例，不會拉伸變形）
+        portrait_frame = cv2.resize(cropped_frame, (1080, 1920), interpolation=cv2.INTER_LINEAR)
         
         return portrait_frame
         
-    def adjust_detection_coordinates(self, detection_result, original_shape, display_width, display_height):
-        """調整偵測座標以配合豎屏裁切和縮放"""
+    def adjust_detection_coordinates_fast(self, detection_result, original_shape, display_width, display_height):
+        """ FPS 優化：快速版本的偵測座標調整"""
         # 安全檢查
         if not detection_result or not isinstance(detection_result, dict):
             return None
             
         # 檢查必要的鍵是否存在
-        required_keys = ['x', 'y', 'width', 'height']
-        if not all(key in detection_result for key in required_keys):
+        if not all(key in detection_result for key in ['x', 'y', 'width', 'height']):
             return None
         
-        # 💪 豎屏裁切座標調整邏輯
-        # 步驟1：考慮從1920x1080裁切到中間1080x1080區域的影響
-        crop_x_offset = (1920 - 1080) // 2  # 420像素偏移
+        crop_x_offset = 622  # 預計算：(1920 - 675) // 2
         
         # 檢查偵測框是否在裁切區域內
         face_left = detection_result['x']
         face_right = detection_result['x'] + detection_result['width']
         
         # 如果人臉完全在裁切區域外，返回None
-        if face_right < crop_x_offset or face_left > crop_x_offset + 1080:
+        if face_right < crop_x_offset or face_left > crop_x_offset + 675:
             return None
         
         # 調整X座標（減去裁切偏移）
         adjusted_x = max(0, detection_result['x'] - crop_x_offset)
-        adjusted_width = min(detection_result['width'], 1080 - adjusted_x)
+        adjusted_width = min(detection_result['width'], 675 - adjusted_x)
         
         # Y座標不變（沒有Y方向裁切）
         adjusted_y = detection_result['y']
         adjusted_height = detection_result['height']
         
-        # 步驟2：從1080x1080縮放到1080x1920的座標調整
-        # X方向不變，Y方向按1920/1080比例縮放
-        scale_y = 1920 / 1080
+        # 步驟2：從675x1080縮放到1080x1920的座標調整（預計算比例）
+        scale_y = 1.777777778  # 預計算：1920 / 1080
         final_y = adjusted_y * scale_y
         final_height = adjusted_height * scale_y
         
-        # 步驟3：最終縮放到顯示尺寸
-        final_scale_x = display_width / 1080
+        # 步驟3：最終縮放到顯示尺寸（預計算比例）
+        final_scale_x = display_width / 675  # 更精確的比例
         final_scale_y = display_height / 1920
         
         final_result = {
@@ -442,19 +443,25 @@ class MainWindow(QMainWindow):
         
         if self.current_screenshot_path:
             if self.startup_params['no_llm_mode']:
-                default_response = {
-                    'caption': 'Emergency defense protocol activated.',
-                    'caption_tc': '緊急防禦協議啟動。',
-                    'weapons': ['01', '02']
-                }
-                self.state_machine.on_llm_complete(default_response)
+                # 💡 新增：使用可配置的調試模式回應
+                debug_response = self.config_loader.get_debug_response()
+                print(f"🔧 No LLM Debug Mode - 使用 nollmdebug.csv 配置:")
+                print(f"   英文字幕: {debug_response['caption'][:50]}...")
+                print(f"   中文字幕: {debug_response['caption_tc'][:30]}...")
+                print(f"   調試武器: {debug_response['weapons']}")
+                print(f"   ⚡ 這些武器將使用 weapon_config.csv 中的真實配置數據")
+                
+                self.state_machine.on_llm_complete(debug_response)
             else:
                 self.state_machine.llm_analysis_requested.emit(self.current_screenshot_path)
                 
     def start_llm_analysis(self, image_path):
         """開始 AI 分析"""
         weapon_list = self.config_loader.get_weapon_list()
-        self.ollama_service.analyze_image(image_path, weapon_list)
+        # 從配置獲取LLM回應超時時間
+        llm_timeout = self.config.get('llm_response_timeout', 10)
+        print(f"🤖 開始LLM分析: 超時設定 = {llm_timeout}秒")
+        self.ollama_service.analyze_image(image_path, weapon_list, llm_timeout)
         
     def on_llm_complete(self, response):
         """AI 分析完成"""
@@ -474,81 +481,17 @@ class MainWindow(QMainWindow):
         self.tts_completed = False  # 修正：初始應為 False
         self.wait_timer_completed = False
         
-        # 啟動SSR1（字幕燈光）
+        # 🔥 NEW: 儲存回應數據，等待 SSR1 完成後再顯示
+        self.pending_caption_response = response
+        
+        # 啟動SSR1（字幕燈光）- 現在會等待配置的時間
         print("=== CAPTION STATE: Starting SSR1 (caption lighting) ===")
+        print("SSR1 will wait for configured time before triggering caption display...")
         self.ssr_controller.start_caption_lighting()
         self.ssr_controller.print_debug_status()
         
-        # 顯示截圖
-        if self.current_screenshot_path:
-            original_frame = cv2.imread(self.current_screenshot_path)
-            if original_frame is not None:
-                cropped_frame = self.crop_frame_to_portrait(original_frame)
-                
-                # 💪 修正目標尺寸：使用實際視窗尺寸
-                target_width = self.window_width
-                target_height = self.window_height
-                
-                if cropped_frame.shape[1] != target_width or cropped_frame.shape[0] != target_height:
-                    cropped_frame = cv2.resize(cropped_frame, (target_width, target_height), 
-                                             interpolation=cv2.INTER_LINEAR)
-                
-                qimage = CameraManager.frame_to_qimage(cropped_frame)
-                pixmap = QPixmap.fromImage(qimage)
-                self.screenshot_label.setPixmap(pixmap)
-            
-            self.fade_in_widget(self.screenshot_label)
-            
-        # 檢查字幕
-        caption_tc = response.get('caption_tc', '')
-        caption_en = response.get('caption', '')
-        typing_speed = self.config.get('caption_typing_speed', 50)
-        
-        # 儲存武器列表
-        self.current_weapons = response.get('weapons', [])
-        
-        # 準備TTS和字幕同步
-        if caption_tc and caption_en:
-            # 雙語模式
-            if caption_en and hasattr(self, 'tts_service') and self.tts_service.is_available():
-                # 獲取TTS預估時長
-                tts_duration = self.tts_service.get_estimated_duration(caption_en)
-                
-                # 計算同步速率
-                tts_rate_wpm = 140
-                if hasattr(self.tts_service, 'worker') and self.tts_service.worker and self.tts_service.worker.config:
-                    tts_rate_wpm = self.tts_service.worker.config.get_int('rate', 140)
-                
-                # 啟用同步模式
-                self.caption_widget.enable_tts_sync(caption_en, tts_rate_wpm)
-                
-                print(f"TTS: Starting synchronized caption display")
-                self.tts_completed = False
-                self.tts_service.speak_text(caption_en)
-            
-            self.caption_widget.show_bilingual_caption(caption_tc, caption_en, typing_speed)
-        elif caption_tc:
-            # 只有中文
-            self.caption_widget.show_caption(caption_tc, typing_speed)
-        elif caption_en:
-            # 只有英文
-            if hasattr(self, 'tts_service') and self.tts_service.is_available():
-                tts_duration = self.tts_service.get_estimated_duration(caption_en)
-                tts_rate_wpm = 140
-                if hasattr(self.tts_service, 'worker') and self.tts_service.worker and self.tts_service.worker.config:
-                    tts_rate_wpm = self.tts_service.worker.config.get_int('rate', 140)
-                
-                self.caption_widget.enable_tts_sync(caption_en, tts_rate_wpm)
-                
-                print(f"TTS: Starting synchronized caption display")
-                self.tts_completed = False
-                self.tts_service.speak_text(caption_en)
-            
-            self.caption_widget.show_caption(caption_en, typing_speed)
-        else:
-            # 沒有字幕
-            self.caption_completed = True
-            self.check_all_completed()
+        # 🔥 REMOVED: 截圖和字幕顯示邏輯已移至 on_caption_lighting_ready()
+        # 等待 SSR1 完成其等待時間後才開始顯示內容
     
     def on_tts_started(self):
         """TTS 開始朗讀"""
@@ -624,16 +567,126 @@ class MainWindow(QMainWindow):
         self.state_machine.on_spotlight_ready()
                          
     def on_caption_lighting_ready(self):
-        """字幕燈光準備完成"""
-        print("Caption lighting (SSR1) ready")
-        # SSR1燈光準備完成，不需要特別的狀態轉換，字幕繼續進行
+        """字幕燈光準備完成 - 現在開始顯示截圖和字幕"""
+        print("=== SSR1 WAIT COMPLETE: Starting caption and image display ===")
+        
+        # 檢查是否有等待的回應數據
+        if not hasattr(self, 'pending_caption_response') or not self.pending_caption_response:
+            print("Warning: No pending caption response, skipping display")
+            return
+            
+        response = self.pending_caption_response
+        
+        # 顯示截圖
+        if self.current_screenshot_path:
+            original_frame = cv2.imread(self.current_screenshot_path)
+            if original_frame is not None:
+                # 💪 截圖現在已經是處理過的1080x1920格式，只需要調整到視窗尺寸
+                target_width = self.window_width
+                target_height = self.window_height
+                
+                # 檢查截圖是否已經是正確尺寸
+                frame_height, frame_width = original_frame.shape[:2]
+                
+                if frame_width != target_width or frame_height != target_height:
+                    # 需要縮放到視窗尺寸（保持比例）
+                    resized_frame = cv2.resize(original_frame, (target_width, target_height), 
+                                             interpolation=cv2.INTER_LINEAR)
+                else:
+                    # 已經是正確尺寸
+                    resized_frame = original_frame
+                
+                qimage = CameraManager.frame_to_qimage(resized_frame)
+                pixmap = QPixmap.fromImage(qimage)
+                self.screenshot_label.setPixmap(pixmap)
+            
+            self.fade_in_widget(self.screenshot_label)
+            
+        # 檢查字幕
+        caption_tc = response.get('caption_tc', '')
+        caption_en = response.get('caption', '')
+        typing_speed = self.config.get('caption_typing_speed', 50)
+        print(f"📖 載入字幕設定: typing_speed = {typing_speed}ms (來自配置文件)")
+        
+        # 儲存武器列表
+        self.current_weapons = response.get('weapons', [])
+        
+        # 準備TTS和字幕同步 - 修復調用順序
+        if caption_tc and caption_en:
+            # 雙語模式 - 先設置字幕，再啟用TTS同步
+            # 🎯 首先使用句子同步方法設置字幕
+            if self.caption_widget.set_bilingual_text_sentence_sync(caption_tc, caption_en, typing_speed):
+                print("使用句子同步模式")
+            else:
+                print("句子同步失敗，回退到普通模式")
+                self.caption_widget.show_bilingual_caption(caption_tc, caption_en, typing_speed)
+            
+            # 然後檢查是否需要啟用TTS同步
+            if caption_en and hasattr(self, 'tts_service') and self.tts_service.is_available():
+                # 獲取TTS預估時長
+                tts_duration = self.tts_service.get_estimated_duration(caption_en)
+                
+                # 計算同步速率
+                tts_rate_wpm = 140
+                if hasattr(self.tts_service, 'worker') and self.tts_service.worker and self.tts_service.worker.config:
+                    tts_rate_wpm = self.tts_service.worker.config.get_int('rate', 140)
+                
+                # 啟用同步模式（在字幕設置之後）
+                self.caption_widget.enable_tts_sync(caption_en, tts_rate_wpm)
+                
+                print(f"TTS: Starting synchronized caption display (after SSR1 wait)")
+                self.tts_completed = False
+                self.tts_service.speak_text(caption_en)
+            else:
+                # 💡 No-LLM模式或TTS不可用：設置TTS為完成狀態
+                print("TTS不可用或No-LLM模式，跳過TTS播放")
+                self.tts_completed = True
+        elif caption_tc:
+            # 只有中文
+            print("只有中文字幕，無需TTS")
+            self.tts_completed = True
+            self.caption_widget.show_caption(caption_tc, typing_speed)
+        elif caption_en:
+            # 只有英文
+            if hasattr(self, 'tts_service') and self.tts_service.is_available():
+                tts_duration = self.tts_service.get_estimated_duration(caption_en)
+                tts_rate_wpm = 140
+                if hasattr(self.tts_service, 'worker') and self.tts_service.worker and self.tts_service.worker.config:
+                    tts_rate_wpm = self.tts_service.worker.config.get_int('rate', 140)
+                
+                self.caption_widget.enable_tts_sync(caption_en, tts_rate_wpm)
+                
+                print(f"TTS: Starting synchronized caption display (after SSR1 wait)")
+                self.tts_completed = False
+                self.tts_service.speak_text(caption_en)
+            else:
+                # 💡 No-LLM模式或TTS不可用：設置TTS為完成狀態
+                print("TTS不可用或No-LLM模式，跳過TTS播放")
+                self.tts_completed = True
+            
+            self.caption_widget.show_caption(caption_en, typing_speed)
+        else:
+            # 沒有字幕
+            print("Warning: No caption content found, completing all caption states")
+            self.caption_completed = True
+            self.tts_completed = True  # 沒有TTS需要完成
+            self.wait_timer_completed = True  # 沒有等待計時器需要完成
+            self.check_all_completed()
+            
+        # 清除待處理的回應數據
+        self.pending_caption_response = None
         
     def display_weapons(self, weapon_ids):
         """顯示武器"""
+        print(f"display_weapons() called with weapon_ids: {weapon_ids}")
+        
         if not weapon_ids:
+            print("武器列表為空，直接完成")
             self.state_machine.on_weapon_display_complete()
             return
             
+        print(f" 開始顯示 {len(weapon_ids)} 個武器: {weapon_ids}")
+        
         # 隱藏字幕和截圖
         self.caption_widget.hide()
         self.screenshot_label.hide()
@@ -665,19 +718,32 @@ class MainWindow(QMainWindow):
         print(f"Displaying weapon - ID: {weapon_id}, Index: {self.weapon_display_index}")
         
         if weapon_info:
+            # 💡 新增：詳細的調試信息顯示weapon_config.csv數據
+            print(f"🔧 Weapon Config Data from weapon_config.csv:")
+            print(f"   武器: {weapon_info['name']} (ID: {weapon_id})")
+            print(f"   Arduino Pin: {weapon_info['pin']}")
+            print(f"   Arduino Timing: wait_before={weapon_info['wait_before']}ms, high_time={weapon_info['high_time']}ms, wait_after={weapon_info['wait_after']}ms")
+            print(f"   Image: {weapon_info['image_path']}")
+            print(f"   Image Timing: fade_in={weapon_info['image_fade_in']}s, display={weapon_info['image_display']}s, fade_out={weapon_info['image_fade_out']}s")
+            
             # 顯示武器圖片
             self.show_weapon_image(weapon_info)
             
             # 控制 Arduino
             if self.arduino_controller and weapon_info['pin']:
+                print(f"🔌 Arduino Control: Pin {weapon_info['pin']} -> HIGH for {weapon_info['high_time']}ms")
                 self.arduino_controller.control_pin(
                     weapon_info['pin'],
                     weapon_info['wait_before'],
                     weapon_info['high_time'],
                     weapon_info['wait_after']
                 )
+            elif weapon_info['pin']:
+                print(f"Arduino not connected, but would control Pin {weapon_info['pin']}")
+            else:
+                print(f"No Arduino pin configured for weapon {weapon_id}")
         else:
-            print(f"Warning: Weapon ID '{weapon_id}' not found")
+            print(f"❌Warning: Weapon ID '{weapon_id}' not found in weapon_config.csv")
                 
         self.weapon_display_index += 1
         
@@ -784,6 +850,9 @@ class MainWindow(QMainWindow):
         self.tts_completed = True
         self.wait_timer_completed = False
         self.caption_displayed = False  # 重置防重複標記
+        
+        # 🔥 NEW: 清理待處理的回應數據
+        self.pending_caption_response = None
         
         # 確保所有SSR關閉
         print("=== RESET: Ensuring all SSR are turned OFF ===")
