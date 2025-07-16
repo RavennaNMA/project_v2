@@ -1,5 +1,5 @@
 # Location: project_v2/core/ssr_controller.py
-# Usage: SSR 燈光控制器
+# Usage: SSR 燈光控制器（修改為使用ESP32）
 
 import csv
 import os
@@ -54,7 +54,7 @@ class SSRConfig:
             with open('config/otherssr_config.csv', 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['name', 'pin', 'delay_before', 'high_time', 'wait_after'])
-                writer.writerow(['SSR1', 12, 0, 0, 0])
+                writer.writerow(['SSR1', 12, 0, 0, 3000])
                 writer.writerow(['SSR2', 13, 0, 0, 0])
             print("已創建預設 config/otherssr_config.csv")
         except Exception as e:
@@ -68,9 +68,9 @@ class SSRThread(QThread):
     ssr1_ready = pyqtSignal()  # SSR1準備完成
     ssr2_ready = pyqtSignal()  # SSR2準備完成
     
-    def __init__(self, arduino_controller, ssr_config):
+    def __init__(self, esp32_controller, ssr_config):
         super().__init__()
-        self.arduino = arduino_controller
+        self.esp32 = esp32_controller  # 使用ESP32控制器
         self.config = ssr_config
         self.ssr1_active = False
         self.ssr2_active = False
@@ -107,23 +107,23 @@ class SSRThread(QThread):
                     self.msleep(self.config.ssr1_delay_before)
                 
                 # 設定為HIGH
-                if self.arduino:
+                if self.esp32:
                     print(f"Setting SSR1 Pin {self.config.ssr1_pin} to HIGH")
-                    self.arduino.set_pin_state(self.config.ssr1_pin, 'HIGH', 0)
+                    self.esp32.set_pin_state(self.config.ssr1_pin, 'HIGH', 0)
                     self.status_changed.emit(f"SSR1 Pin {self.config.ssr1_pin} -> HIGH")
                 else:
-                    print("Warning: Arduino controller not available for SSR1")
+                    print("Warning: ESP32 controller not available for SSR1")
                 
                 # 🔥 NEW: 等待後延遲（分離SSR1和字幕顯示）
                 if self.config.ssr1_wait_after > 0:
-                    print(f"SSR1 waiting {self.config.ssr1_wait_after}ms before triggering caption display...")
-                    self.status_changed.emit(f"SSR1燈光已啟動，等待 {self.config.ssr1_wait_after}ms 後開始字幕顯示")
+                    print(f"SSR1 waiting {self.config.ssr1_wait_after}ms before triggering caption display")
+                    self.status_changed.emit(f"SSR1等待 {self.config.ssr1_wait_after}ms 後顯示字幕")
                     self.msleep(self.config.ssr1_wait_after)
-                    print("SSR1 wait complete, ready to show captions")
                 
                 self.ssr1_processed = True
+                self.ssr1_active = False
                 self.ssr1_ready.emit()
-            
+                
             # 檢查SSR2
             if self.ssr2_active and not self.ssr2_processed:
                 print(f"Processing SSR2: Pin {self.config.ssr2_pin}")
@@ -134,20 +134,23 @@ class SSRThread(QThread):
                     self.msleep(self.config.ssr2_delay_before)
                 
                 # 設定為HIGH
-                if self.arduino:
+                if self.esp32:
                     print(f"Setting SSR2 Pin {self.config.ssr2_pin} to HIGH")
-                    self.arduino.set_pin_state(self.config.ssr2_pin, 'HIGH', 0)
+                    self.esp32.set_pin_state(self.config.ssr2_pin, 'HIGH', 0)
                     self.status_changed.emit(f"SSR2 Pin {self.config.ssr2_pin} -> HIGH")
                 else:
-                    print("Warning: Arduino controller not available for SSR2")
-                    
+                    print("Warning: ESP32 controller not available for SSR2")
+                
+                # 等待後延遲
+                if self.config.ssr2_wait_after > 0:
+                    self.status_changed.emit(f"SSR2等待後延遲 {self.config.ssr2_wait_after}ms")
+                    self.msleep(self.config.ssr2_wait_after)
+                
                 self.ssr2_processed = True
+                self.ssr2_active = False
                 self.ssr2_ready.emit()
                 
-            # 短暫休眠
-            self.msleep(50)
-            
-        print("SSR thread ending")
+            self.msleep(50)  # 短暫休眠
 
 
 class SSRController(QObject):
@@ -155,18 +158,23 @@ class SSRController(QObject):
     
     status_changed = pyqtSignal(str)
     spotlight_ready = pyqtSignal()
-    caption_lighting_ready = pyqtSignal()
+    caption_lighting_ready = pyqtSignal()  # 新增：字幕燈光準備完成
     
-    def __init__(self, arduino_controller=None):
+    def __init__(self, esp32_controller):
         super().__init__()
-        self.arduino = arduino_controller
+        self.esp32 = esp32_controller  # 使用ESP32控制器
         self.config = SSRConfig()
         self.ssr_thread = None
+        
+        # 連接ESP32信號
+        if self.esp32:
+            self.esp32.status_changed.connect(self.on_status_changed)
         
     def start_caption_lighting(self):
         """開始字幕燈光（SSR1）"""
         print(f"Starting caption lighting: SSR1 Pin {self.config.ssr1_pin}")
         
+        # 如果線程已存在且運行中，重用它
         if self.ssr_thread and self.ssr_thread.isRunning():
             print("SSR thread already running, activating SSR1")
             self.ssr_thread.activate_ssr1()
@@ -175,7 +183,7 @@ class SSRController(QObject):
             
         # 創建新線程
         print("Creating new SSR thread for caption lighting")
-        self.ssr_thread = SSRThread(self.arduino, self.config)
+        self.ssr_thread = SSRThread(self.esp32, self.config)
         self.ssr_thread.status_changed.connect(self.on_status_changed)
         self.ssr_thread.ssr1_ready.connect(self.on_ssr1_ready)
         self.ssr_thread.ssr2_ready.connect(self.on_ssr2_ready)
@@ -195,7 +203,7 @@ class SSRController(QObject):
             self.status_changed.emit("聚光燈已啟動")
         else:
             print("Creating new SSR thread for spotlight")
-            self.ssr_thread = SSRThread(self.arduino, self.config)
+            self.ssr_thread = SSRThread(self.esp32, self.config)
             self.ssr_thread.status_changed.connect(self.on_status_changed)
             self.ssr_thread.ssr1_ready.connect(self.on_ssr1_ready)
             self.ssr_thread.ssr2_ready.connect(self.on_ssr2_ready)
@@ -207,16 +215,16 @@ class SSRController(QObject):
         """停止所有燈光"""
         print("Stopping all SSR lighting")
         
-        if self.arduino:
+        if self.esp32:
             if hasattr(self, 'ssr_thread') and self.ssr_thread:
                 if self.ssr_thread.ssr1_processed:
                     print(f"Setting SSR1 Pin {self.config.ssr1_pin} to LOW")
-                    self.arduino.set_pin_state(self.config.ssr1_pin, 'LOW', 0)
+                    self.esp32.set_pin_state(self.config.ssr1_pin, 'LOW', 0)
                     self.status_changed.emit(f"SSR1 Pin {self.config.ssr1_pin} -> LOW")
                 
                 if self.ssr_thread.ssr2_processed:
                     print(f"Setting SSR2 Pin {self.config.ssr2_pin} to LOW")
-                    self.arduino.set_pin_state(self.config.ssr2_pin, 'LOW', 0)
+                    self.esp32.set_pin_state(self.config.ssr2_pin, 'LOW', 0)
                     self.status_changed.emit(f"SSR2 Pin {self.config.ssr2_pin} -> LOW")
         
         # 停止線程
@@ -277,4 +285,4 @@ class SSRController(QObject):
         print(f"Thread Running: {status['thread_running']}")
         print(f"SSR1 Active: {status['ssr1_active']}, Processed: {status['ssr1_processed']}")
         print(f"SSR2 Active: {status['ssr2_active']}, Processed: {status['ssr2_processed']}")
-        print("========================") 
+        print("========================")

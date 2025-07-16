@@ -225,6 +225,7 @@ class KokoroTTSWorker(QThread):
                 
                 # 語音結束
                 self.is_speaking = False
+                print(f"🎯 TTS播放完成，發送完成信號")
                 self.tts_finished.emit()
                 
             except queue.Empty:
@@ -232,6 +233,9 @@ class KokoroTTSWorker(QThread):
             except Exception as e:
                 self.tts_error.emit(f"語音合成錯誤: {e}")
                 self.is_speaking = False
+                # 錯誤時也要發送完成信號，避免系統卡住
+                print(f"⚠️ TTS錯誤，發送完成信號避免卡住")
+                self.tts_finished.emit()
     
     def _synthesize_realtime(self, text):
         """即時語音合成模式"""

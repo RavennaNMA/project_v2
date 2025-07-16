@@ -201,6 +201,11 @@ class CaptionWidget(QWidget):
                 print(f"🔄 大跳躍處理: {old_position}→{current_pos} (+{progress_jump})")
                 self._force_complete_to_position(current_pos)
         
+        # 🎯 新增：檢查TTS是否完成，強制發送完成信號
+        if current_pos >= total_len and total_len > 0:
+            print(f"🎯 TTS進度100%完成，檢查字幕完成狀態")
+            self._check_and_force_completion()
+        
         # 更頻繁的進度日誌，幫助調試
         if current_pos % 50 == 0 or current_pos == total_len:
             progress = (current_pos / total_len * 100) if total_len > 0 else 0
@@ -419,10 +424,33 @@ class CaptionWidget(QWidget):
                     self._en_completed = True
                     self.en_typing_complete.emit()
             
-            # 中文按比例同步
+            # 🔥 優化：中文同步邏輯 - 確保中英文真正同步
             if hasattr(self, 'tc_text') and self.tc_text:
                 en_progress = self.en_index / len(self.en_text) if len(self.en_text) > 0 else 0
-                tc_target = int(en_progress * len(self.tc_text))
+                
+                # 🎯 新增：使用更精確的同步算法
+                # 考慮中英文的語言特性差異
+                if len(self.tc_text) > 0:
+                    # 基於實際字符比例進行更精確的映射
+                    tc_char_ratio = len(self.tc_text) / len(self.en_text) if len(self.en_text) > 0 else 1.0
+                    
+                    # 調整同步速度 - 考慮中文字符通常比英文單詞表達更緊湊
+                    if tc_char_ratio < 0.8:  # 中文明顯少於英文
+                        # 中文稍微領先，確保視覺效果自然
+                        sync_adjustment = 1.1
+                    elif tc_char_ratio > 1.2:  # 中文明顯多於英文
+                        # 中文稍微滯後，平衡顯示
+                        sync_adjustment = 0.9
+                    else:
+                        # 長度相近，正常同步
+                        sync_adjustment = 1.0
+                    
+                    adjusted_progress = min(en_progress * sync_adjustment, 1.0)
+                    tc_target = int(adjusted_progress * len(self.tc_text))
+                    
+                    # print(f"🔄 字幕同步: EN {self.en_index}/{len(self.en_text)} ({en_progress:.2f}) -> TC {tc_target}/{len(self.tc_text)} (ratio:{tc_char_ratio:.2f}, adj:{sync_adjustment:.2f})")
+                else:
+                    tc_target = int(en_progress * len(self.tc_text))
                 
                 if tc_target > self.tc_index:
                     self.tc_index = tc_target
@@ -434,7 +462,7 @@ class CaptionWidget(QWidget):
                         self.tc_typing_complete.emit()
         
     def _update_normal_display(self):
-        """常規顯示更新（非TTS同步）"""
+        """常規顯示更新（非TTS同步）- 優化雙語同步"""
         if self.is_bilingual_mode:
             # 🎯 檢查是否啟用句子同步模式
             if hasattr(self, 'sentence_sync_mode') and self.sentence_sync_mode:
@@ -445,53 +473,76 @@ class CaptionWidget(QWidget):
         else:
             self._update_single_normal()
             
+    def _update_bilingual_normal(self):
+        """雙語常規更新 - 確保中英文同步"""
+        # 🔥 優化：雙語同步打字效果
+        
+        # 計算英文進度
+        en_completed = (hasattr(self, 'en_text') and hasattr(self, 'en_index') 
+                       and self.en_index >= len(self.en_text))
+        tc_completed = (hasattr(self, 'tc_text') and hasattr(self, 'tc_index') 
+                       and self.tc_index >= len(self.tc_text))
+        
+        if en_completed and tc_completed:
+            # 雙語都完成
+            if not self._typing_completed:
+                self._typing_completed = True
+                print("📝 雙語字幕打字完成")
+                self.typing_complete.emit()
+            return
+        
+        # 同步推進中英文字幕
+        if hasattr(self, 'en_text') and self.en_text and not self._en_completed:
+            if self.en_index < len(self.en_text):
+                # 🎯 改進：每次推進 1-3 個字符，提供更平滑的效果
+                chars_to_advance = min(2, len(self.en_text) - self.en_index)
+                self.en_index += chars_to_advance
+                self.en_current_text = self.en_text[:self.en_index]
+                
+                if self.en_index >= len(self.en_text):
+                    self._en_completed = True
+                    self.en_typing_complete.emit()
+        
+        # 中文同步推進
+        if hasattr(self, 'tc_text') and self.tc_text and not self._tc_completed:
+            if self.tc_index < len(self.tc_text):
+                # 計算中文的同步位置
+                if hasattr(self, 'en_text') and len(self.en_text) > 0:
+                    en_progress = self.en_index / len(self.en_text)
+                    target_tc_index = int(en_progress * len(self.tc_text))
+                    
+                    # 🎯 改進：確保中文跟上英文進度，避免延遲
+                    if target_tc_index > self.tc_index:
+                        chars_to_advance = min(target_tc_index - self.tc_index, 
+                                             max(1, (target_tc_index - self.tc_index) // 2))
+                        self.tc_index += chars_to_advance
+                        self.tc_current_text = self.tc_text[:self.tc_index]
+                else:
+                    # 如果沒有英文參考，正常推進
+                    self.tc_index += 1
+                    self.tc_current_text = self.tc_text[:self.tc_index]
+                
+                if self.tc_index >= len(self.tc_text):
+                    self._tc_completed = True
+                    self.tc_typing_complete.emit()
+        
+        # 檢查整體完成狀態
+        if self._en_completed and self._tc_completed and not self._typing_completed:
+            self._typing_completed = True
+            print("📝 雙語字幕全部顯示完成")
+            self.typing_complete.emit()
+            
     def _update_single_normal(self):
         """單語常規更新"""
-        if self.current_index < len(self.full_text):
+        if hasattr(self, 'full_text') and self.current_index < len(self.full_text):
             self.current_index += 1
             self.current_text = self.full_text[:self.current_index]
             self.update()
         else:
-            self.display_timer.stop()
-            self.typing_complete.emit()
-            
-    def _update_bilingual_normal(self):
-        """雙語常規更新 - 平衡推進"""
-        tc_total = len(self.tc_text) if hasattr(self, 'tc_text') else 0
-        en_total = len(self.en_text) if hasattr(self, 'en_text') else 0
-        
-        # 計算當前進度
-        tc_progress = self.tc_index / tc_total if tc_total > 0 else 1.0
-        en_progress = self.en_index / en_total if en_total > 0 else 1.0
-        
-        # 推進落後的語言
-        advanced = False
-        
-        if not self._tc_completed and tc_progress <= en_progress and self.tc_index < tc_total:
-            self.tc_index += 1
-            self.tc_current_text = self.tc_text[:self.tc_index]
-            advanced = True
-            
-            if self.tc_index >= tc_total:
-                self._tc_completed = True
-                self.tc_typing_complete.emit()
-                
-        if not self._en_completed and en_progress <= tc_progress and self.en_index < en_total:
-            self.en_index += 1
-            self.en_current_text = self.en_text[:self.en_index]
-            advanced = True
-            
-            if self.en_index >= en_total:
-                self._en_completed = True
-                self.en_typing_complete.emit()
-        
-        if advanced:
-            self.update()
-            
-        # 檢查是否都完成
-        if self._tc_completed and self._en_completed:
-            self.display_timer.stop()
-            self.typing_complete.emit()
+            if not self._typing_completed:
+                self._typing_completed = True
+                self.display_timer.stop()
+                self.typing_complete.emit()
             
     def disable_tts_sync(self):
         """禁用TTS同步並完成顯示"""
@@ -1232,4 +1283,60 @@ class CaptionWidget(QWidget):
             self.display_timer.stop()
             self.typing_complete.emit()
             
+        self.update()
+
+    def _check_and_force_completion(self):
+        """檢查並強制完成字幕顯示"""
+        if not self.tts_sync_enabled:
+            return
+            
+        print(f"🔍 檢查字幕完成狀態:")
+        
+        if self.is_bilingual_mode:
+            # 雙語模式檢查
+            en_completed = (hasattr(self, 'en_text') and hasattr(self, 'en_index') 
+                           and self.en_index >= len(self.en_text))
+            tc_completed = (hasattr(self, 'tc_text') and hasattr(self, 'tc_index') 
+                           and self.tc_index >= len(self.tc_text))
+            
+            print(f"   英文完成: {en_completed} ({self.en_index}/{len(self.en_text) if hasattr(self, 'en_text') else 0})")
+            print(f"   中文完成: {tc_completed} ({self.tc_index}/{len(self.tc_text) if hasattr(self, 'tc_text') else 0})")
+            
+            # 強制完成未完成的語言
+            if not en_completed and hasattr(self, 'en_text'):
+                print(f"   🔧 強制完成英文字幕")
+                self.en_index = len(self.en_text)
+                self.en_current_text = self.en_text
+                if not self._en_completed:
+                    self._en_completed = True
+                    self.en_typing_complete.emit()
+                    
+            if not tc_completed and hasattr(self, 'tc_text'):
+                print(f"   🔧 強制完成中文字幕")
+                self.tc_index = len(self.tc_text)
+                self.tc_current_text = self.tc_text
+                if not self._tc_completed:
+                    self._tc_completed = True
+                    self.tc_typing_complete.emit()
+            
+            # 檢查整體完成
+            if en_completed and tc_completed and not self._typing_completed:
+                print(f"   ✅ 雙語字幕全部完成，發送完成信號")
+                self._typing_completed = True
+                self.typing_complete.emit()
+        else:
+            # 單語模式檢查
+            single_completed = (hasattr(self, 'full_text') and hasattr(self, 'current_index') 
+                               and self.current_index >= len(self.full_text))
+            
+            print(f"   單語完成: {single_completed} ({self.current_index}/{len(self.full_text) if hasattr(self, 'full_text') else 0})")
+            
+            if not single_completed and hasattr(self, 'full_text'):
+                print(f"   🔧 強制完成單語字幕")
+                self.current_index = len(self.full_text)
+                self.current_text = self.full_text
+                if not hasattr(self, '_typing_completed') or not self._typing_completed:
+                    self._typing_completed = True
+                    self.typing_complete.emit()
+        
         self.update()

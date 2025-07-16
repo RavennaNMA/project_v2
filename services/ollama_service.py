@@ -143,6 +143,7 @@ class OllamaThread(QThread):
         result = {
             'caption': '',
             'caption_tc': '',
+            'caption_en': '',  # 🔥 添加 caption_en 鍵
             'caption_segments': [],  # 英文分段
             'caption_tc_segments': [],  # 中文分段
             'weapons': []
@@ -177,6 +178,7 @@ class OllamaThread(QThread):
                 result['caption_tc'] = ' '.join(result['caption_tc_segments'])
             if result['caption_segments']:
                 result['caption'] = ' '.join(result['caption_segments'])
+                result['caption_en'] = result['caption']  # 🔥 同步 caption_en
                 
             print(f"DEBUG: 解析到分段 - 中文: {len(result['caption_tc_segments'])}段, 英文: {len(result['caption_segments'])}段")
             
@@ -202,6 +204,7 @@ class OllamaThread(QThread):
                 
                 if caption_en_cleaned and self._is_primarily_english(caption_en_cleaned):
                     result['caption'] = caption_en_cleaned[:800]
+                    result['caption_en'] = caption_en_cleaned[:800]  # 🔥 添加 caption_en 同步
         
         # 解析武器列表（與之前相同）
         weapons_match = re.search(r'Weapons[:：]\s*\[?([^\]]*)\]?', response_text, re.IGNORECASE)
@@ -222,6 +225,7 @@ class OllamaThread(QThread):
         print(f"  caption_tc: '{result['caption_tc']}'")
         print(f"  caption_tc_segments: {result['caption_tc_segments']}")
         print(f"  caption: '{result['caption']}'")
+        print(f"  caption_en: '{result['caption_en']}'")  # 🔥 添加調試輸出
         print(f"  caption_segments: {result['caption_segments']}")
         print(f"  weapons: {result['weapons']}")
             
@@ -324,10 +328,11 @@ Weapons: [weapon1_id, weapon2_id, weapon3_id]"""
         """處理錯誤"""
         print(f"Ollama 錯誤: {error}")
         
-        # 使用預設回應
+        # 使用預設回應 - 修復：使用正確的鍵名確保TTS正常工作
         default_response = {
-            'caption': 'System analysis unavailable. Activating default protocol.',
+            'caption_en': 'System analysis unavailable. Activating default protocol.',  # 修復：使用caption_en
             'caption_tc': '系統分析不可用。啟動預設協議。',
+            'caption': 'System analysis unavailable. Activating default protocol.',  # 保留兼容性
             'weapons': ['01', '02']
         }
         
