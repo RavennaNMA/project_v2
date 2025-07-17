@@ -241,8 +241,6 @@ class MainWindow(QMainWindow):
         
         # TTS 信號連接 - 確保即時字幕同步
         if hasattr(self, 'tts_service') and self.tts_service is not None:
-            print("連接 TTS 服務信號以支援即時字幕同步...")
-            
             # 連接 TTS 生命週期信號
             self.tts_service.tts_started.connect(self.on_tts_started)
             self.tts_service.tts_finished.connect(self.on_tts_finished)
@@ -254,8 +252,6 @@ class MainWindow(QMainWindow):
             
             # 連接文字片段信號 - 提供更精細的同步
             self.tts_service.tts_word_progress.connect(self.on_tts_word_progress)
-            
-            print("TTS 即時字幕同步信號已連接")
             
         # SSR控制器信號
         self.ssr_controller.spotlight_ready.connect(self.on_spotlight_ready)
@@ -477,10 +473,7 @@ class MainWindow(QMainWindow):
                 # No LLM模式：直接使用config_loader的調試回應
                 if hasattr(self, 'config_loader'):
                     debug_response = self.config_loader.get_debug_response()
-                    print(f"🔧 No LLM Debug Mode - 使用 nollmdebug.csv 配置:")
-                    print(f"   英文字幕: {debug_response['caption'][:50]}...")
-                    print(f"   中文字幕: {debug_response['caption_tc'][:30]}...")
-                    print(f"   調試武器: {debug_response['weapons']}")
+                    
                     self.state_machine.on_llm_complete(debug_response)
             else:
                 # 正常模式：啟動LLM分析
@@ -502,7 +495,6 @@ class MainWindow(QMainWindow):
         """顯示字幕和截圖"""
         # 防止重複顯示
         if self.caption_displayed:
-            print("Warning: Caption already displayed, skipping")
             return
             
         self.caption_displayed = True
@@ -511,8 +503,6 @@ class MainWindow(QMainWindow):
         self.caption_completed = False
         self.tts_completed = False  # 修正：初始應為 False
         self.wait_timer_completed = False
-        
-        # 🔥 NEW: 儲存回應數據，等待 SSR1 完成後再顯示
         self.pending_caption_response = response
         
         # 啟動SSR1（字幕燈光）- 現在會等待配置的時間
@@ -521,7 +511,7 @@ class MainWindow(QMainWindow):
         self.ssr_controller.start_caption_lighting()
         self.ssr_controller.print_debug_status()
         
-        # 🔥 REMOVED: 截圖和字幕顯示邏輯已移至 on_caption_lighting_ready()
+        # REMOVED: 截圖和字幕顯示邏輯已移至 on_caption_lighting_ready()
         # 等待 SSR1 完成其等待時間後才開始顯示內容
         
     def on_caption_lighting_ready(self):
@@ -529,7 +519,6 @@ class MainWindow(QMainWindow):
         print("=== SSR1 READY: Now displaying caption and screenshot ===")
         
         if not hasattr(self, 'pending_caption_response') or not self.pending_caption_response:
-            print("Warning: No pending caption response")
             return
             
         response = self.pending_caption_response
@@ -631,20 +620,18 @@ class MainWindow(QMainWindow):
                 self.tts_completed = True
             
             # 🔧 修復：使用正確的雙語字幕顯示方法
+            # 首先顯示字幕元件並確保在最上層
+            self.caption_widget.show()
+            self.caption_widget.raise_()  # 確保字幕元件在最上層
+            
             if caption_tc and caption_en:
-                print(f"📝 顯示雙語字幕:")
-                print(f"   中文: {caption_tc[:50]}...")
-                print(f"   英文: {caption_en[:50]}...")
                 self.caption_widget.show_bilingual_caption(caption_tc, caption_en, typing_speed)
             elif caption_en:
-                print(f"📝 顯示英文字幕: {caption_en[:50]}...")
                 self.caption_widget.show_caption(caption_en, typing_speed)
             elif caption_tc:
-                print(f"📝 顯示中文字幕: {caption_tc[:50]}...")
                 self.caption_widget.show_caption(caption_tc, typing_speed)
         else:
             # 沒有字幕
-            print("Warning: No caption content found, completing all caption states")
             self.caption_completed = True
             self.tts_completed = True  # 沒有TTS需要完成
             self.wait_timer_completed = True  # 沒有等待計時器需要完成
@@ -660,14 +647,11 @@ class MainWindow(QMainWindow):
     
     def on_tts_progress(self, current_pos, total_len):
         """TTS進度更新 - 用於即時字幕同步"""
-        if self.startup_params['debug_mode']:
-            progress = (current_pos / total_len * 100) if total_len > 0 else 0
-            print(f"TTS Progress: {current_pos}/{total_len} ({progress:.1f}%) - 同步字幕顯示")
+        pass
     
     def on_tts_word_progress(self, current_chunk):
         """TTS即時文字片段進度更新 - 提供精細同步"""
-        if self.startup_params['debug_mode']:
-            print(f"TTS Word Progress: '{current_chunk}' - 即時字幕片段同步")
+        pass
     
     def on_tts_error(self, error_msg):
         """TTS 錯誤處理"""
@@ -716,32 +700,15 @@ class MainWindow(QMainWindow):
         
     def check_all_completed(self):
         """檢查是否所有字幕相關任務都完成"""
-        print(f"🔍 檢查字幕完成狀態:")
-        print(f"   字幕打字完成: {self.caption_completed}")
-        print(f"   TTS播放完成: {self.tts_completed}")
-        print(f"   等待計時器完成: {self.wait_timer_completed}")
-        
         if (self.caption_completed and 
             self.tts_completed and 
             self.wait_timer_completed):
             
-            print("✅ 所有字幕任務完成，轉換到下一狀態")
             self.state_machine.on_caption_complete()
-        else:
-            incomplete_tasks = []
-            if not self.caption_completed:
-                incomplete_tasks.append("字幕打字")
-            if not self.tts_completed:
-                incomplete_tasks.append("TTS播放")
-            if not self.wait_timer_completed:
-                incomplete_tasks.append("等待計時器")
-            print(f"⏳ 等待完成: {', '.join(incomplete_tasks)}")
     
     def on_spotlight_requested(self):
         """聚光燈請求"""
-        print("=== SPOTLIGHT STATE: Starting SSR2 ===")
         self.ssr_controller.start_spotlight()
-        self.ssr_controller.print_debug_status()
         
     def on_spotlight_ready(self):
         """聚光燈準備完成"""
@@ -752,7 +719,6 @@ class MainWindow(QMainWindow):
             self.state_machine.on_spotlight_ready()
         else:
             # 備用：直接進入武器顯示狀態
-            print("Warning: on_spotlight_ready method not found, proceeding to weapon display")
             if hasattr(self, 'current_weapons'):
                 self.display_weapons(self.current_weapons)
         
@@ -785,9 +751,7 @@ class MainWindow(QMainWindow):
             self.black_overlay.hide()
             
             # 關閉所有SSR燈光
-            print("=== IMG_SHOW COMPLETE: Stopping all SSR lighting ===")
             self.ssr_controller.stop_all_lighting()
-            self.ssr_controller.print_debug_status()
             
             self.state_machine.on_weapon_display_complete()
             return
@@ -798,13 +762,7 @@ class MainWindow(QMainWindow):
         print(f"Displaying weapon - ID: {weapon_id}, Index: {self.weapon_display_index}")
         
         if weapon_info:
-            # 💡 新增：詳細的調試信息顯示weapon_config.csv數據
-            print(f"🔧 Weapon Config Data from weapon_config.csv:")
-            print(f"   武器: {weapon_info['name']} (ID: {weapon_id})")
-            print(f"   Arduino Pin: {weapon_info['pin']}")
-            print(f"   Arduino Timing: wait_before={weapon_info['wait_before']}ms, high_time={weapon_info['high_time']}ms, wait_after={weapon_info['wait_after']}ms")
-            print(f"   Image: {weapon_info['image_path']}")
-            print(f"   Image Timing: fade_in={weapon_info['image_fade_in']}s, display={weapon_info['image_display']}s, fade_out={weapon_info['image_fade_out']}s")
+
             
             # 顯示武器圖片
             self.show_weapon_image(weapon_info)
@@ -823,7 +781,7 @@ class MainWindow(QMainWindow):
             else:
                 print(f"No ESP32 pin configured for weapon {weapon_id}")
         else:
-            print(f"❌Warning: Weapon ID '{weapon_id}' not found in weapon_config.csv")
+            pass
                 
         self.weapon_display_index += 1
         
@@ -883,8 +841,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(total_display_time, 
                             lambda: self.fade_out_widget(self.weapon_label, fade_out_duration))
         else:
-            print(f"Warning: Weapon image not found: {image_path}")
-            print(f"檢查路徑: {os.path.abspath(image_path)}")
+
             print(f"當前工作目錄: {os.getcwd()}")
             
             # 列出weapons_img目錄的內容以幫助調試
@@ -1014,17 +971,31 @@ class MainWindow(QMainWindow):
                 
                 # ESP32 B (SSR控制)
                 if 'B' in all_pin_states:
-                    ssr1_state = all_pin_states['B'].get(4, 'LOW')
-                    ssr2_state = all_pin_states['B'].get(5, 'LOW')
                     esp32_pin_lines.append("ESP32 B SSR:")
-                    esp32_pin_lines.append(f"  SSR1(D12/G4):{ssr1_state}")
-                    esp32_pin_lines.append(f"  SSR2(D13/G5):{ssr2_state}")
-                
+                    
+                    # SSR1 腳位狀態
+                    ssr1_pins = [4, 5, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23]
+                    ssr1_states = []
+                    for pin in ssr1_pins:
+                        state = all_pin_states['B'].get(pin, 'LOW')
+                        ssr1_states.append(f"G{pin}:{state}")
+                    
+                    # SSR1腳位狀態分組顯示
+                    for i in range(0, len(ssr1_states), 4):
+                        esp32_pin_lines.append(f"  SSR1: {' '.join(ssr1_states[i:i+4])}")
+                    
+                    # SSR2 腳位狀態
+                    ssr2_state = all_pin_states['B'].get(25, 'LOW')
+                    esp32_pin_lines.append(f"  SSR2(G25):{ssr2_state}")
+
+
+
+
                 # ESP32 C (安裝控制)
                 if 'C' in all_pin_states:
                     install_state = all_pin_states['C'].get(4, 'LOW')
-                    esp32_pin_lines.append("ESP32 C 安裝:")
-                    esp32_pin_lines.append(f"  Install(G4):{install_state}")
+                    esp32_pin_lines.append("ESP32 C :")
+                    esp32_pin_lines.append(f"  Installation (G4):{install_state}")
             
             debug_text = f"""State: {self.state_machine.current_state.value}
 FPS: {self.current_fps}

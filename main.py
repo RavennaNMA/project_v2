@@ -14,7 +14,7 @@ from services import PlatformService
 
 # Debug 文字大小 (像素，會根據縮放係數調整)
 # 建議範圍：12-24，預設：16
-DEBUG_TEXT_SIZE = 18
+DEBUG_TEXT_SIZE = 16
 
 # 字幕文字大小 (像素，會根據縮放係數調整)  
 # 建議範圍：20-40，預設：28

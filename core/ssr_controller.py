@@ -10,11 +10,13 @@ class SSRConfig:
     """SSR配置類"""
     
     def __init__(self):
-        self.ssr1_pin = 12
-        self.ssr2_pin = 13
+        # SSR1 現在控制多個腳位
+        self.ssr1_pins = [4, 5, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23]  # 12個腳位
+        self.ssr2_pin = 25  # SSR2 只控制單一腳位
+        
         self.ssr1_delay_before = 0
         self.ssr2_delay_before = 0
-        self.ssr1_high_time = 0  # 持續時間（0表示一直保持）
+        self.ssr1_high_time = 0
         self.ssr2_high_time = 0
         self.ssr1_wait_after = 0
         self.ssr2_wait_after = 0
@@ -29,7 +31,8 @@ class SSRConfig:
                     reader = csv.DictReader(f)
                     for row in reader:
                         if row['name'] == 'SSR1':
-                            self.ssr1_pin = int(row['pin'])
+                            # SSR1 的 pin 欄位現在存儲多個腳位（以分號分隔）
+                            self.ssr1_pins = [int(p.strip()) for p in row['pin'].split(';')]
                             self.ssr1_delay_before = int(row['delay_before'])
                             self.ssr1_high_time = int(row['high_time'])
                             self.ssr1_wait_after = int(row['wait_after'])
@@ -39,7 +42,7 @@ class SSRConfig:
                             self.ssr2_high_time = int(row['high_time'])
                             self.ssr2_wait_after = int(row['wait_after'])
                             
-                print(f"SSR設定載入：SSR1 Pin {self.ssr1_pin}, SSR2 Pin {self.ssr2_pin}")
+                print(f"SSR設定載入：SSR1 Pins {self.ssr1_pins}, SSR2 Pin {self.ssr2_pin}")
             else:
                 print("config/otherssr_config.csv 不存在，創建預設配置")
                 self.create_default_config()
@@ -54,8 +57,9 @@ class SSRConfig:
             with open('config/otherssr_config.csv', 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['name', 'pin', 'delay_before', 'high_time', 'wait_after'])
-                writer.writerow(['SSR1', 12, 0, 0, 3000])
-                writer.writerow(['SSR2', 13, 0, 0, 0])
+                # SSR1 使用分號分隔多個腳位
+                writer.writerow(['SSR1', '4;5;12;13;14;16;17;18;19;21;22;23', 0, 0, 3000])
+                writer.writerow(['SSR2', 25, 0, 0, 0])
             print("已創建預設 config/otherssr_config.csv")
         except Exception as e:
             print(f"創建預設配置時發生錯誤: {e}")
@@ -99,18 +103,19 @@ class SSRThread(QThread):
         while not self.should_stop:
             # 檢查SSR1
             if self.ssr1_active and not self.ssr1_processed:
-                print(f"Processing SSR1: Pin {self.config.ssr1_pin}")
+                print(f"Processing SSR1: Pins {self.config.ssr1_pins}")
                 
                 # 等待前延遲
                 if self.config.ssr1_delay_before > 0:
                     self.status_changed.emit(f"SSR1等待前延遲 {self.config.ssr1_delay_before}ms")
                     self.msleep(self.config.ssr1_delay_before)
                 
-                # 設定為HIGH
+                # 設定所有SSR1腳位為HIGH
                 if self.esp32:
-                    print(f"Setting SSR1 Pin {self.config.ssr1_pin} to HIGH")
-                    self.esp32.set_pin_state(self.config.ssr1_pin, 'HIGH', 0)
-                    self.status_changed.emit(f"SSR1 Pin {self.config.ssr1_pin} -> HIGH")
+                    for pin in self.config.ssr1_pins:
+                        print(f"Setting SSR1 Pin {pin} to HIGH")
+                        self.esp32.set_pin_state(pin, 'HIGH', 0)
+                    self.status_changed.emit(f"SSR1 Pins {self.config.ssr1_pins} -> HIGH")
                 else:
                     print("Warning: ESP32 controller not available for SSR1")
                 
@@ -172,7 +177,7 @@ class SSRController(QObject):
         
     def start_caption_lighting(self):
         """開始字幕燈光（SSR1）"""
-        print(f"Starting caption lighting: SSR1 Pin {self.config.ssr1_pin}")
+        print(f"Starting caption lighting: SSR1 Pins {self.config.ssr1_pins}")
         
         # 如果線程已存在且運行中，重用它
         if self.ssr_thread and self.ssr_thread.isRunning():
@@ -218,9 +223,11 @@ class SSRController(QObject):
         if self.esp32:
             if hasattr(self, 'ssr_thread') and self.ssr_thread:
                 if self.ssr_thread.ssr1_processed:
-                    print(f"Setting SSR1 Pin {self.config.ssr1_pin} to LOW")
-                    self.esp32.set_pin_state(self.config.ssr1_pin, 'LOW', 0)
-                    self.status_changed.emit(f"SSR1 Pin {self.config.ssr1_pin} -> LOW")
+                    # 關閉所有SSR1腳位
+                    for pin in self.config.ssr1_pins:
+                        print(f"Setting SSR1 Pin {pin} to LOW")
+                        self.esp32.set_pin_state(pin, 'LOW', 0)
+                    self.status_changed.emit(f"SSR1 Pins {self.config.ssr1_pins} -> LOW")
                 
                 if self.ssr_thread.ssr2_processed:
                     print(f"Setting SSR2 Pin {self.config.ssr2_pin} to LOW")
@@ -280,7 +287,7 @@ class SSRController(QObject):
         """列印調試狀態"""
         status = self.get_ssr_status()
         print("=== SSR Debug Status ===")
-        print(f"SSR1 Pin: {self.config.ssr1_pin}")
+        print(f"SSR1 Pins: {self.config.ssr1_pins}")
         print(f"SSR2 Pin: {self.config.ssr2_pin}")
         print(f"Thread Running: {status['thread_running']}")
         print(f"SSR1 Active: {status['ssr1_active']}, Processed: {status['ssr1_processed']}")

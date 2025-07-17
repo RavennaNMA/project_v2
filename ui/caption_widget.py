@@ -68,9 +68,11 @@ class CaptionWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAutoFillBackground(False)
         
-        # 字型設定
+        # 字型設定 - 使用字型管理器
         base_font_size = int(font_size * scale_factor)
-        self.caption_font = QFont("Noto Sans CJK TC", base_font_size)
+        from utils.font_manager import FontManager
+        self.font_manager = FontManager()
+        self.caption_font = self.font_manager.get_font(base_font_size)
         
         # 文字邊距
         self.padding = 20
@@ -121,7 +123,6 @@ class CaptionWidget(QWidget):
         else:
             # TTS同步模式使用固定的快速更新頻率
             self.display_timer.start(16)  # 60fps 更新頻率
-            print(f"TTS同步模式：使用60fps更新頻率")
         
         self.update()
         
@@ -154,7 +155,6 @@ class CaptionWidget(QWidget):
             print(f"雙語字幕顯示計時器，間隔: {interval}ms (typing_speed: {typing_speed}ms)")
         else:
             self.display_timer.start(16)  # 60fps 更新頻率
-            print(f"雙語TTS同步模式：使用60fps更新頻率")
         
         self.update()
         
@@ -165,13 +165,10 @@ class CaptionWidget(QWidget):
         self.tts_target_position = 0
         self.last_tts_update_time = time.time()
         
-        print(f"TTS同步啟用: 文字長度={len(tts_text)}")
-        
         # 如果計時器已經在運行，重新配置為TTS同步模式
         if self.display_timer.isActive():
             self.display_timer.stop()
             self.display_timer.start(16)  # 60fps 更新頻率用於TTS同步
-            print("已切換到TTS同步模式，使用60fps更新頻率")
         
     def update_tts_progress(self, current_pos, total_len):
         """更新TTS進度 - 優化同步響應"""
@@ -180,36 +177,27 @@ class CaptionWidget(QWidget):
             
         # 過濾異常進度值
         if current_pos < 0 or current_pos > total_len * 1.5:
-            print(f"⚠️ 異常TTS進度值: {current_pos}/{total_len}")
             return
             
-        # 立即更新進度，更積極響應TTS
-        if current_pos >= self.tts_target_position:
-            old_position = self.tts_target_position
-            self.tts_target_position = current_pos
-            self.last_tts_update_time = time.time()
-            
-            progress_jump = current_pos - old_position
-            progress_ratio = current_pos / total_len if total_len > 0 else 0
-            
-            # 🎯 簡化邏輯：直接更新顯示，減少複雜判斷
-            print(f"📈 TTS進度更新: {old_position} -> {current_pos} (+{progress_jump}) = {progress_ratio*100:.1f}%")
-            self._update_tts_sync_display()
-            
-            # 只在大跳躍時做特殊處理
-            if progress_jump > 10:
-                print(f"🔄 大跳躍處理: {old_position}→{current_pos} (+{progress_jump})")
-                self._force_complete_to_position(current_pos)
+                    # 立即更新進度，更積極響應TTS
+            if current_pos >= self.tts_target_position:
+                old_position = self.tts_target_position
+                self.tts_target_position = current_pos
+                self.last_tts_update_time = time.time()
+                
+                progress_jump = current_pos - old_position
+                progress_ratio = current_pos / total_len if total_len > 0 else 0
+                
+                # 🎯 簡化邏輯：直接更新顯示，減少複雜判斷
+                self._update_tts_sync_display()
+                
+                # 只在大跳躍時做特殊處理
+                if progress_jump > 10:
+                    self._force_complete_to_position(current_pos)
         
         # 🎯 新增：檢查TTS是否完成，強制發送完成信號
         if current_pos >= total_len and total_len > 0:
-            print(f"🎯 TTS進度100%完成，檢查字幕完成狀態")
             self._check_and_force_completion()
-        
-        # 更頻繁的進度日誌，幫助調試
-        if current_pos % 50 == 0 or current_pos == total_len:
-            progress = (current_pos / total_len * 100) if total_len > 0 else 0
-            print(f"📊 TTS總進度: {current_pos}/{total_len} ({progress:.1f}%)")
             
     def _check_and_push_sentence_completion(self, current_pos, total_len):
         """ 簡化：輕度檢查句子完成，避免過度推進"""
@@ -313,7 +301,7 @@ class CaptionWidget(QWidget):
                 if target_index > self.current_index:
                     self.current_index = target_index
                     self.current_text = self.full_text[:self.current_index]
-                    print(f"📝 單語TTS同步: {self.current_index}/{len(self.full_text)} 字符")
+    
                     
                     # 檢查完成
                     if self.current_index >= len(self.full_text):
@@ -605,8 +593,16 @@ class CaptionWidget(QWidget):
     def paintEvent(self, event):
         """繪製字幕和背景"""
         if not self.is_showing:
+            print("字幕元件未顯示，跳過繪製")
             return
             
+        if self.is_bilingual_mode:
+            tc_text = getattr(self, 'tc_current_text', '')
+            en_text = getattr(self, 'en_current_text', '')
+            print(f"繪製字幕: is_showing={self.is_showing}, tc_text='{tc_text}', en_text='{en_text}', is_bilingual={self.is_bilingual_mode}")
+        else:
+            print(f"繪製字幕: is_showing={self.is_showing}, current_text='{self.current_text}', is_bilingual={self.is_bilingual_mode}")
+        
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
@@ -1083,7 +1079,7 @@ class CaptionWidget(QWidget):
         
         # 🎯 關鍵修復：移除進度限制，讓字幕直接跟隨TTS進度
         # 不再限制字幕進度，讓字幕能夠跟上TTS的實際速度
-        print(f"📊 TTS同步: target_pos={target_pos}, en_text_len={len(self.en_text)}, progress={en_progress_ratio*100:.1f}%")
+        
         
         # 🎯 修復句子切換邏輯 - 更響應TTS進度
         total_sentences = min(len(self.tc_sentences), len(self.en_sentences))
@@ -1097,7 +1093,7 @@ class CaptionWidget(QWidget):
         if sentence_progress_in_current >= 0.75 and current_sentence_idx < total_sentences - 1:  # 降低到75%
             target_sentence = current_sentence_idx + 1
             sentence_progress = 0.0  # 新句子從0開始
-            print(f"🎯 TTS同步句子切換: {current_sentence_idx} -> {target_sentence} (進度{sentence_progress_in_current*100:.1f}%)")
+            
         else:
             target_sentence = current_sentence_idx
             sentence_progress = sentence_progress_in_current
@@ -1109,7 +1105,7 @@ class CaptionWidget(QWidget):
         original_progress = sentence_progress
         if sentence_progress >= 0.70:  # 降低到70%就自動完成
             sentence_progress = 1.0  # 強制完成當前句子
-            print(f"🚀 TTS同步自動完成句子{target_sentence + 1} (原進度{original_progress*100:.1f}% -> 100%)")
+            
         
         # 更新顯示內容
         if target_sentence != self.current_sentence_index:
@@ -1139,7 +1135,7 @@ class CaptionWidget(QWidget):
                     accelerated_progress = min(accelerated_progress, 1.0)  # 允許完全完成
                     tc_chars = int(len(current_tc_sentence) * accelerated_progress)
                     en_chars = int(len(current_en_sentence) * accelerated_progress)
-                    print(f"🚀 TTS同步加速: {sentence_progress*100:.1f}% -> {accelerated_progress*100:.1f}%")
+    
                 else:
                     # 正常進度顯示
                     tc_chars = int(len(current_tc_sentence) * sentence_progress)

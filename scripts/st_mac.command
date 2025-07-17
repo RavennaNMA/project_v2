@@ -95,35 +95,9 @@ else
     echo "請確保：1) 相機已連接 2) 相機權限已允許"
 fi
 
-# 檢查 Arduino 連接（可選）
-echo -e "${BLUE}檢查 Arduino 連接...${NC}"
-if ls /dev/cu.usb* 2>/dev/null >/dev/null; then
-    echo -e "${GREEN}✅ 檢測到 USB 設備，可能包含 Arduino${NC}"
-    ls /dev/cu.usb* 2>/dev/null
-else
-    echo -e "${YELLOW}⚠️ 未檢測到 Arduino USB 連接${NC}"
-    echo "SSR 控制功能將不可用（僅影響硬體控制）"
-fi
-
-# 檢查系統權限
-echo -e "${BLUE}檢查系統權限...${NC}"
-echo -e "${YELLOW}💡 程式需要以下權限：${NC}"
-echo "• 相機存取權限（必需）"
-echo "• 麥克風權限（用於 TTS 播放）"
-echo "• 檔案系統權限（用於儲存截圖）"
+# 啟動程式
 echo ""
-
-# SSL 警告處理
-echo -e "${BLUE}檢查 SSL 環境...${NC}"
-if python3 -c "import ssl; print('SSL version:', ssl.OPENSSL_VERSION)" 2>/dev/null | grep -q "LibreSSL"; then
-    echo -e "${YELLOW}⚠️ 檢測到 LibreSSL，可能會有相容性警告（不影響功能）${NC}"
-    export PYTHONHTTPSVERIFY=0  # 暫時解決 SSL 警告
-fi
-
-# 啟動程式（偵錯模式）
-echo ""
-echo -e "${GREEN}🚀 啟動防禦偵測系統 v2（偵錯模式）...${NC}"
-echo -e "${YELLOW}💡 提示：如果出現相機權限提示，請選擇「允許」${NC}"
+echo -e "${GREEN}🚀 啟動防禦偵測系統...${NC}"
 echo ""
 
 # 記錄啟動時間
