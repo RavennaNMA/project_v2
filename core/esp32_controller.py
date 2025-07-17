@@ -91,6 +91,8 @@ class ESP32Thread(QThread):
                     
                 if cmd.get('type') == 'pin_state':
                     self._execute_pin_state_command(cmd)
+                elif cmd.get('type') == 'esp32_pin_state':
+                    self._execute_esp32_pin_state_command(cmd)
                 else:
                     self._execute_command(cmd)
                     
@@ -221,6 +223,32 @@ class ESP32Thread(QThread):
             self.pin_state_changed.emit(esp_name, esp_pin, state)
             self.status_changed.emit(f"ESP32 {esp_name} Pin {esp_pin} -> {state}")
             
+    def _execute_esp32_pin_state_command(self, cmd):
+        """🔥 新增：執行直接ESP32腳位狀態控制指令"""
+        esp_name = cmd['esp_name']
+        esp_pin = cmd['esp_pin']
+        state = cmd['state']
+        wait_before = cmd.get('wait_before', 0)
+        
+        if not self.connections.get(esp_name, False):
+            self.error_occurred.emit(f"ESP32 {esp_name} 未連接")
+            return
+            
+        # 前延遲
+        if wait_before > 0:
+            time.sleep(wait_before / 1000.0)
+            
+        # 設置Pin狀態
+        value = 1 if state == 'HIGH' else 0
+        response = self._send_command(esp_name, f"SET:{esp_pin},{value}")
+        
+        if "SET_PIN" in response:
+            self.pin_states[esp_name][esp_pin] = state
+            self.pin_state_changed.emit(esp_name, esp_pin, state)
+            self.status_changed.emit(f"ESP32 {esp_name} Pin {esp_pin} -> {state}")
+        else:
+            self.error_occurred.emit(f"ESP32 {esp_name} Pin {esp_pin} 設置失敗: {response}")
+            
     def add_command(self, pin, wait_before=0, high_time=1000, wait_after=0):
         """新增控制指令"""
         with self.lock:
@@ -237,6 +265,17 @@ class ESP32Thread(QThread):
             self.command_queue.append({
                 'type': 'pin_state',
                 'pin': pin,
+                'state': state,
+                'wait_before': wait_before
+            })
+            
+    def add_esp32_pin_state_command(self, esp_name, esp_pin, state, wait_before=0):
+        """🔥 新增：直接ESP32腳位狀態控制指令"""
+        with self.lock:
+            self.command_queue.append({
+                'type': 'esp32_pin_state',
+                'esp_name': esp_name,
+                'esp_pin': esp_pin,
                 'state': state,
                 'wait_before': wait_before
             })
@@ -306,9 +345,31 @@ class ESP32Controller(QObject):
             self.esp32_thread.add_command(pin, wait_before, high_time, wait_after)
             
     def set_pin_state(self, pin, state, wait_before=0):
-        """設定腳位狀態（不自動切換）"""
+        """設置Arduino腳位狀態（兼容性方法）"""
         if self.esp32_thread and self.esp32_thread.isRunning():
             self.esp32_thread.add_pin_state_command(pin, state, wait_before)
+        else:
+            print(f"⚠️ ESP32線程未運行，無法設置腳位 {pin}")
+        
+    def set_esp32_pin_state(self, esp_name, esp_pin, state, wait_before=0):
+        """🔥 新增：直接設置ESP32腳位狀態"""
+        if not self.esp32_thread:
+            print(f"⚠️ ESP32線程未初始化")
+            return
+            
+        # 檢查ESP32是否存在
+        if esp_name not in self.esp32_thread.config.esp32_configs:
+            print(f"⚠️ ESP32 {esp_name} 不存在")
+            return
+            
+        # 檢查腳位是否在ESP32的腳位列表中
+        esp_config = self.esp32_thread.config.esp32_configs[esp_name]
+        if esp_pin not in esp_config['pins']:
+            print(f"⚠️ ESP32 {esp_name} 沒有腳位 {esp_pin}")
+            return
+            
+        # 添加直接ESP32腳位控制命令
+        self.esp32_thread.add_esp32_pin_state_command(esp_name, esp_pin, state, wait_before)
             
     def get_pin_state(self, pin):
         """獲取腳位狀態"""

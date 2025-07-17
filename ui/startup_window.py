@@ -57,7 +57,7 @@ class StartupWindow(QMainWindow):
         
     def setup_ui(self):
         """設定 UI"""
-        self.setWindowTitle("防禦偵測系統 - 啟動設定")
+        self.setWindowTitle("System v2 - 啟動設定")
         self.setFixedSize(1200, 800)  # 增加寬度，減少高度
         
         # 設定樣式
@@ -182,7 +182,7 @@ class StartupWindow(QMainWindow):
         settings_layout.setSpacing(15)
         
         # 標題
-        title_label = QLabel("防禦偵測系統 v2")
+        title_label = QLabel("System v2")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("""
             font-size: 24px;

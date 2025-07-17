@@ -100,10 +100,12 @@ class SSRThread(QThread):
         
     def run(self):
         """執行緒主邏輯"""
+        print("🔌 SSR執行緒啟動")
+        
         while not self.should_stop:
             # 檢查SSR1
             if self.ssr1_active and not self.ssr1_processed:
-                print(f"Processing SSR1: Pins {self.config.ssr1_pins}")
+                print(f"🔦 處理 SSR1: Pins {self.config.ssr1_pins}")
                 
                 # 等待前延遲
                 if self.config.ssr1_delay_before > 0:
@@ -112,26 +114,50 @@ class SSRThread(QThread):
                 
                 # 設定所有SSR1腳位為HIGH
                 if self.esp32:
-                    for pin in self.config.ssr1_pins:
-                        print(f"Setting SSR1 Pin {pin} to HIGH")
-                        self.esp32.set_pin_state(pin, 'HIGH', 0)
-                    self.status_changed.emit(f"SSR1 Pins {self.config.ssr1_pins} -> HIGH")
+                    try:
+                        for pin in self.config.ssr1_pins:
+                            print(f"設定 SSR1 Pin {pin} 為 HIGH")
+                            # 🔥 修復：直接設置ESP32 B的腳位，不使用Arduino映射
+                            self.esp32.set_esp32_pin_state('B', pin, 'HIGH', 0)
+                        self.status_changed.emit(f"SSR1 Pins {self.config.ssr1_pins} -> HIGH")
+                        
+                        # 🔥 新增：同時設置ESP32(C)的腳位為HIGH
+                        print("設定 ESP32(C) Pin 4 為 HIGH")
+                        self.esp32.set_esp32_pin_state('C', 4, 'HIGH', 0)
+                        self.status_changed.emit("ESP32(C) Pin 4 -> HIGH")
+                        
+                    except Exception as e:
+                        print(f"⚠️ SSR1 控制錯誤: {e}")
                 else:
-                    print("Warning: ESP32 controller not available for SSR1")
+                    print("⚠️ 警告：ESP32 控制器不可用於 SSR1")
                 
-                # 🔥 NEW: 等待後延遲（分離SSR1和字幕顯示）
+                # 等待後延遲
                 if self.config.ssr1_wait_after > 0:
-                    print(f"SSR1 waiting {self.config.ssr1_wait_after}ms before triggering caption display")
+                    print(f"⏳ SSR1 等待 {self.config.ssr1_wait_after}ms 後觸發字幕顯示")
                     self.status_changed.emit(f"SSR1等待 {self.config.ssr1_wait_after}ms 後顯示字幕")
                     self.msleep(self.config.ssr1_wait_after)
                 
                 self.ssr1_processed = True
                 self.ssr1_active = False
+                
+                # 🔥 重要：發出 SSR1 準備完成信號
+                print("✅ SSR1 處理完成，發出準備信號")
                 self.ssr1_ready.emit()
+                
+                # 🔥 可選：如果您希望ESP32(C)在SSR1完成後自動設為LOW，請取消註釋以下代碼
+                # if self.esp32:
+                #     try:
+                #         print("SSR1完成，將ESP32(C) Pin 4設為LOW")
+                #         self.esp32.set_esp32_pin_state('C', 4, 'LOW', 0)
+                #         self.status_changed.emit("ESP32(C) Pin 4 -> LOW (SSR1完成)")
+                #     except Exception as e:
+                #         print(f"⚠️ ESP32(C) 設為LOW時發生錯誤: {e}")
+                # else:
+                #     print("⚠️ 警告：ESP32 控制器不可用於設置ESP32(C)為LOW")
                 
             # 檢查SSR2
             if self.ssr2_active and not self.ssr2_processed:
-                print(f"Processing SSR2: Pin {self.config.ssr2_pin}")
+                print(f"💡 處理 SSR2: Pin {self.config.ssr2_pin}")
                 
                 # 等待前延遲
                 if self.config.ssr2_delay_before > 0:
@@ -140,11 +166,15 @@ class SSRThread(QThread):
                 
                 # 設定為HIGH
                 if self.esp32:
-                    print(f"Setting SSR2 Pin {self.config.ssr2_pin} to HIGH")
-                    self.esp32.set_pin_state(self.config.ssr2_pin, 'HIGH', 0)
-                    self.status_changed.emit(f"SSR2 Pin {self.config.ssr2_pin} -> HIGH")
+                    try:
+                        print(f"設定 SSR2 Pin {self.config.ssr2_pin} 為 HIGH")
+                        # 🔥 修復：直接設置ESP32 B的腳位，不使用Arduino映射
+                        self.esp32.set_esp32_pin_state('B', self.config.ssr2_pin, 'HIGH', 0)
+                        self.status_changed.emit(f"SSR2 Pin {self.config.ssr2_pin} -> HIGH")
+                    except Exception as e:
+                        print(f"⚠️ SSR2 控制錯誤: {e}")
                 else:
-                    print("Warning: ESP32 controller not available for SSR2")
+                    print("⚠️ 警告：ESP32 控制器不可用於 SSR2")
                 
                 # 等待後延遲
                 if self.config.ssr2_wait_after > 0:
@@ -153,9 +183,15 @@ class SSRThread(QThread):
                 
                 self.ssr2_processed = True
                 self.ssr2_active = False
+                
+                # 🔥 重要：發出 SSR2 準備完成信號
+                print("✅ SSR2 處理完成，發出準備信號")
                 self.ssr2_ready.emit()
                 
             self.msleep(50)  # 短暫休眠
+        
+        print("🔌 SSR執行緒結束")
+
 
 
 class SSRController(QObject):
@@ -223,15 +259,21 @@ class SSRController(QObject):
         if self.esp32:
             if hasattr(self, 'ssr_thread') and self.ssr_thread:
                 if self.ssr_thread.ssr1_processed:
-                    # 關閉所有SSR1腳位
                     for pin in self.config.ssr1_pins:
                         print(f"Setting SSR1 Pin {pin} to LOW")
-                        self.esp32.set_pin_state(pin, 'LOW', 0)
-                    self.status_changed.emit(f"SSR1 Pins {self.config.ssr1_pins} -> LOW")
+                        # 🔥 修復：直接設置ESP32 B的腳位
+                        self.esp32.set_esp32_pin_state('B', pin, 'LOW', 0)
+                        self.status_changed.emit(f"SSR1 Pin {pin} -> LOW")
+                    
+                    # 🔥 新增：同時將ESP32(C)的腳位設為LOW
+                    print("Setting ESP32(C) Pin 4 to LOW")
+                    self.esp32.set_esp32_pin_state('C', 4, 'LOW', 0)
+                    self.status_changed.emit("ESP32(C) Pin 4 -> LOW")
                 
                 if self.ssr_thread.ssr2_processed:
                     print(f"Setting SSR2 Pin {self.config.ssr2_pin} to LOW")
-                    self.esp32.set_pin_state(self.config.ssr2_pin, 'LOW', 0)
+                    # 🔥 修復：直接設置ESP32 B的腳位
+                    self.esp32.set_esp32_pin_state('B', self.config.ssr2_pin, 'LOW', 0)
                     self.status_changed.emit(f"SSR2 Pin {self.config.ssr2_pin} -> LOW")
         
         # 停止線程

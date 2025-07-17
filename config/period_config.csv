@@ -3,14 +3,14 @@
 偵測：所需秒數,detect_duration,3,人臉需持續偵測多久才觸發截圖
 偵測框：大小比例,detect_area_ratio,0.9,偵測框相對於臉部大小的比例
 偵測：最小臉部尺寸,min_face_area_ratio,0.001,最小臉部面積比例（適合廣角攝像頭）
-LLM 回應最大等待時間,llm_response_timeout,8,等待AI回應的最長時間
+LLM 回應最大等待時間,llm_response_timeout,10,等待AI回應的最長時間
 淡入時間,screenshot_fade_in,1,截圖淡入效果時間
 停留時間,screenshot_display,5,截圖持續顯示時間
 淡出時間,screenshot_fade_out,1,截圖淡出效果時間
 打字速度（毫秒/字）,caption_typing_speed,50,字幕打字機效果速度
 每行字符限制,caption_max_chars_per_line,80,每行最大字符數（權重單位）
 中文字符權重,caption_chinese_char_weight,1.8,中文字符相對英文的權重
-字幕顯示後等待,caption_wait_after,6,幕打完後等待時間
+字幕顯示後等待,caption_wait_after,8,幕打完後等待時間
 武器切換等待時間,weapon_switch_delay,0.5,切換武器之間的等待時間
 轉場_從截圖淡入武器,shot_to_weapon_transition,2,從截圖過渡到武器的時間
 間隔_切換圖片的等待時間,image_switch_wait,1,圖片之間的切換等待

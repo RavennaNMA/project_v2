@@ -32,6 +32,7 @@ class FaceDetector(QObject):
         
         # 從配置取得靈敏度
         confidence = self.config.get('detection_sensitivity', 0.5)
+        smoothing_factor = self.config.get('tracking_smoothing', 0.4)  # 平滑因子
         
         try:
             self.face_detection = mp_face_detection.FaceDetection(
@@ -45,9 +46,10 @@ class FaceDetector(QObject):
         self.last_detection = None
         self.main_face_id = 0
         
-        # 穩定性過濾參數（平衡響應速度和穩定性）
-        self.position_threshold = 3   # 位置變化閾值 - 更快跟隨
-        self.size_threshold = 0.05    # 尺寸變化閾值 - 更快跟隨
+        # 平滑追蹤參數
+        self.smoothing_factor = smoothing_factor 
+        self.position_threshold = 2   # 位置變化閾值 - 越小越敏感
+        self.size_threshold = 0.02    # 尺寸變化閾值 - 越小越敏感
         
         # 廣角攝像頭專用設置
         self.use_low_res_detection = True  # 啟用低解析度偵測
@@ -94,16 +96,12 @@ class FaceDetector(QObject):
                         
                         # 🎯 過濾過小的臉部（適合廣角攝像頭）
                         if self._is_face_size_valid(bbox, frame.shape):
-                            # 穩定性過濾：只有當變化足夠大時才更新
-                            if self._should_update_detection(bbox):
-                                self.last_detection = bbox
-                                
-                                self.face_detected.emit(True, bbox)
-                                return bbox
-                            elif self.last_detection:
-                                # 使用上次的檢測結果，減少抖動
-                                self.face_detected.emit(True, self.last_detection)
-                                return self.last_detection
+                            # 平滑追蹤：結合新檢測和上次結果
+                            smoothed_bbox = self._smooth_tracking(bbox)
+                            self.last_detection = smoothed_bbox
+                            
+                            self.face_detected.emit(True, smoothed_bbox)
+                            return smoothed_bbox
             
             # 沒有偵測到人臉
             self.last_detection = None
@@ -203,7 +201,7 @@ class FaceDetector(QObject):
             return None
     
     def _should_update_detection(self, new_bbox):
-        """判斷是否應該更新檢測結果（穩定性過濾）"""
+        """判斷是否應該更新檢測結果（平滑追蹤）"""
         if not self.last_detection or not new_bbox:
             return True
         
@@ -212,6 +210,8 @@ class FaceDetector(QObject):
         # 檢查位置變化
         pos_diff_x = abs(new_bbox['x'] - last['x'])
         pos_diff_y = abs(new_bbox['y'] - last['y'])
+        
+        # 如果位置變化超過閾值，立即更新
         if pos_diff_x > self.position_threshold or pos_diff_y > self.position_threshold:
             return True
         
@@ -223,7 +223,26 @@ class FaceDetector(QObject):
             if size_change > self.size_threshold:
                 return True
         
-        return False
+        # 對於小變化，使用平滑追蹤
+        return True
+    
+    def _smooth_tracking(self, new_bbox):
+        """平滑追蹤：結合新檢測和上次結果"""
+        if not self.last_detection:
+            return new_bbox
+        
+        # 使用平滑因子來結合新舊結果
+        alpha = 1.0 - self.smoothing_factor  # 新檢測的權重
+        
+        smoothed_bbox = {
+            'x': int(self.last_detection['x'] * self.smoothing_factor + new_bbox['x'] * alpha),
+            'y': int(self.last_detection['y'] * self.smoothing_factor + new_bbox['y'] * alpha),
+            'width': int(self.last_detection['width'] * self.smoothing_factor + new_bbox['width'] * alpha),
+            'height': int(self.last_detection['height'] * self.smoothing_factor + new_bbox['height'] * alpha),
+            'confidence': new_bbox['confidence']  # 使用新檢測的信心度
+        }
+        
+        return smoothed_bbox
         
     def draw_detection(self, frame, bbox):
         """在畫面上繪製偵測框 (用於測試)"""

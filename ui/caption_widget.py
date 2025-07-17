@@ -105,34 +105,51 @@ class CaptionWidget(QWidget):
         
     def show_caption(self, text, typing_speed=80):
         """顯示單語字幕 - 優化版本"""
+        print(f"🎬 show_caption 被調用:")
+        print(f"   文字長度: {len(text)}")
+        print(f"   打字速度: {typing_speed}ms")
+        
         self.full_text = text
         self.current_text = ""
         self.current_index = 0
         self.is_showing = True
         self.is_bilingual_mode = False
         self._typing_completed = False  # 重置完成標誌
+        self._first_update_logged = False  # 重置調試標誌
         
+        # 確保元件可見
         self.show()
+        self.raise_()  # 置於最上層
+        
+        # 停止現有計時器
+        if self.display_timer.isActive():
+            self.display_timer.stop()
         
         # 使用統一的顯示機制
         if not self.tts_sync_enabled:
-            #  修復：允許更快的打字速度，降低最小間隔限制
-            interval = max(int(typing_speed), 5)  # 最少5ms間隔，允許配置的3ms生效
+            # 修復：允許更快的打字速度，降低最小間隔限制
+            interval = max(int(typing_speed), 5)  # 最少5ms間隔
             self.display_timer.start(interval)
-            print(f"啟動字幕顯示計時器，間隔: {interval}ms (typing_speed: {typing_speed}ms)")
+            print(f"✅ 啟動字幕顯示計時器，間隔: {interval}ms")
+            print(f"   計時器狀態: {self.display_timer.isActive()}")
         else:
             # TTS同步模式使用固定的快速更新頻率
             self.display_timer.start(16)  # 60fps 更新頻率
+            print(f"✅ 啟動TTS同步計時器，60fps更新")
         
+        # 立即觸發一次更新
         self.update()
         
     def show_bilingual_caption(self, tc_text, en_text, typing_speed=80):
         """顯示雙語字幕 - 優化版本"""
+        print(f"🌐 show_bilingual_caption 被調用:")
+        print(f"   中文長度: {len(tc_text)}")
+        print(f"   英文長度: {len(en_text)}")
+        print(f"   打字速度: {typing_speed}ms")
+        
         self.is_bilingual_mode = True
         self.tc_text = tc_text
         self.en_text = en_text
-        
-        # 語義分段已移除，改用句子同步
         
         # 重置狀態
         self.tc_current_text = ""
@@ -142,21 +159,43 @@ class CaptionWidget(QWidget):
         self._tc_completed = False
         self._en_completed = False
         self._typing_completed = False  # 重置完成標誌
+        self._first_update_logged = False  # 重置調試標誌
         self.current_segment_index = 0  # 重置分段索引
         self.is_showing = True
         
+        # 確保元件可見
         self.show()
+        self.raise_()  # 置於最上層
+        
+        # 停止現有計時器
+        if self.display_timer.isActive():
+            self.display_timer.stop()
         
         # 使用統一的顯示機制
         if not self.tts_sync_enabled:
-            #  修復：允許更快的打字速度，降低最小間隔限制
-            interval = max(int(typing_speed), 5)  # 最少5ms間隔，允許配置的3ms生效
+            # 修復：允許更快的打字速度，降低最小間隔限制
+            interval = max(int(typing_speed), 5)  # 最少5ms間隔
             self.display_timer.start(interval)
-            print(f"雙語字幕顯示計時器，間隔: {interval}ms (typing_speed: {typing_speed}ms)")
+            print(f"✅ 雙語字幕顯示計時器，間隔: {interval}ms")
+            print(f"   計時器狀態: {self.display_timer.isActive()}")
         else:
             self.display_timer.start(16)  # 60fps 更新頻率
+            print(f"✅ 啟動TTS同步計時器，60fps更新")
         
+        # 立即觸發一次更新
         self.update()
+        
+    # 新增調試方法
+    def debug_widget_state(self):
+        """調試元件狀態"""
+        print(f"🔍 字幕元件調試信息:")
+        print(f"   可見: {self.isVisible()}")
+        print(f"   位置: {self.pos()}")
+        print(f"   大小: {self.size()}")
+        print(f"   父元件: {self.parent()}")
+        print(f"   計時器活動: {self.display_timer.isActive()}")
+        print(f"   顯示中: {self.is_showing}")
+        print(f"   當前文字長度: {len(self.current_text) if hasattr(self, 'current_text') else 0}")
         
     def enable_tts_sync(self, tts_text, tts_rate_wpm=140):
         """啟用TTS同步模式 - 簡化版本"""
@@ -171,7 +210,7 @@ class CaptionWidget(QWidget):
             self.display_timer.start(16)  # 60fps 更新頻率用於TTS同步
         
     def update_tts_progress(self, current_pos, total_len):
-        """更新TTS進度 - 優化同步響應"""
+        """🔥 優化：更新TTS進度 - 實現真正的實時同步"""
         if not self.tts_sync_enabled:
             return
             
@@ -179,23 +218,22 @@ class CaptionWidget(QWidget):
         if current_pos < 0 or current_pos > total_len * 1.5:
             return
             
-                    # 立即更新進度，更積極響應TTS
-            if current_pos >= self.tts_target_position:
-                old_position = self.tts_target_position
-                self.tts_target_position = current_pos
-                self.last_tts_update_time = time.time()
-                
-                progress_jump = current_pos - old_position
-                progress_ratio = current_pos / total_len if total_len > 0 else 0
-                
-                # 🎯 簡化邏輯：直接更新顯示，減少複雜判斷
-                self._update_tts_sync_display()
-                
-                # 只在大跳躍時做特殊處理
-                if progress_jump > 10:
-                    self._force_complete_to_position(current_pos)
+        # 🔥 立即更新進度，實現真正的實時同步
+        if current_pos >= self.tts_target_position:
+            old_position = self.tts_target_position
+            self.tts_target_position = current_pos
+            self.last_tts_update_time = time.time()
+            
+            progress_jump = current_pos - old_position
+            
+            # 🔥 關鍵修復：每次進度更新都立即更新顯示
+            self._update_tts_sync_display()
+            
+            # 只在大跳躍時做特殊處理
+            if progress_jump > 10:
+                self._force_complete_to_position(current_pos)
         
-        # 🎯 新增：檢查TTS是否完成，強制發送完成信號
+        # 🔥 檢查TTS是否完成，強制發送完成信號
         if current_pos >= total_len and total_len > 0:
             self._check_and_force_completion()
             
@@ -272,14 +310,89 @@ class CaptionWidget(QWidget):
         self.update()
         
     def _update_display(self):
-        """統一的顯示更新機制"""
+        """統一的顯示更新方法"""
         if not self.is_showing:
             return
-            
+        
+        # 🔥 調試輸出（第一次更新時）
+        if not hasattr(self, '_first_update_logged'):
+            self._first_update_logged = True
+            print(f"📝 字幕開始更新:")
+            print(f"   雙語模式: {self.is_bilingual_mode}")
+            print(f"   TTS同步: {self.tts_sync_enabled}")
+            print(f"   計時器間隔: {self.display_timer.interval()}ms")
+        
+        # TTS同步模式
         if self.tts_sync_enabled:
             self._update_tts_sync_display()
         else:
-            self._update_normal_display()
+            # 常規打字機模式
+            self._update_normal()
+            
+    def _update_normal(self):
+        """常規打字機效果更新 - 優化雙語同步"""
+        if self.is_bilingual_mode:
+            # 🎯 檢查是否啟用句子同步模式
+            if hasattr(self, 'sentence_sync_mode') and self.sentence_sync_mode:
+                # 句子同步模式下，模擬TTS進度
+                self._update_sentence_sync_normal()
+            else:
+                self._update_bilingual_normal()
+        else:
+            self._update_single_normal()
+            
+    def _update_single_normal(self):
+        """單語常規更新 - 按單詞顯示的打字機效果"""
+        if hasattr(self, 'full_text') and self.current_index < len(self.full_text):
+            # 按單詞顯示：找到下一個單詞的結束位置
+            next_word_end = self._find_next_word_end(self.full_text, self.current_index)
+            
+            if next_word_end > self.current_index:
+                # 顯示到下一個單詞結束
+                self.current_index = next_word_end
+                self.current_text = self.full_text[:self.current_index]
+            else:
+                # 如果沒有找到下一個單詞，顯示剩餘的所有文字
+                self.current_index = len(self.full_text)
+                self.current_text = self.full_text
+            
+            # 強制重繪
+            self.update()
+            
+            # 🔥 偶爾輸出進度（每顯示3個單詞）
+            if self._count_words(self.current_text) % 3 == 0:
+                progress = self.current_index / len(self.full_text) * 100
+                words_shown = self._count_words(self.current_text)
+                total_words = self._count_words(self.full_text)
+                print(f"   字幕進度: {progress:.0f}% ({words_shown}/{total_words} 單詞)")
+        else:
+            if not hasattr(self, '_typing_completed') or not self._typing_completed:
+                self._typing_completed = True
+                self.display_timer.stop()
+                print("✅ 單語字幕顯示完成")
+                self.typing_complete.emit()
+                
+    def _find_next_word_end(self, text, start_index):
+        """找到下一個單詞的結束位置"""
+        if start_index >= len(text):
+            return start_index
+            
+        # 跳過當前位置的空白字符
+        i = start_index
+        while i < len(text) and text[i].isspace():
+            i += 1
+            
+        # 找到單詞結束位置（空白字符或標點符號）
+        while i < len(text) and not text[i].isspace():
+            i += 1
+            
+        return i
+        
+    def _count_words(self, text):
+        """計算文字中的單詞數量"""
+        if not text:
+            return 0
+        return len(text.split())
             
     def _update_tts_sync_display(self):
         """TTS同步顯示更新 - 簡化和優化"""
@@ -287,12 +400,9 @@ class CaptionWidget(QWidget):
         target_pos = self.tts_target_position
         
         if self.is_bilingual_mode:
-            # 🎯 優先使用句子同步模式（雙語）
-            if hasattr(self, 'sentence_sync_mode') and self.sentence_sync_mode:
-                self._update_sentence_sync_display(target_pos)
-            else:
-                # 字符比例同步（備用方案）
-                self._update_character_based_sync(target_pos)
+            # 🔥 修復：直接使用字符同步模式，實現實時TTS同步
+            # 不再使用複雜的句子同步模式
+            self._update_character_based_sync(target_pos)
         else:
             # 單語模式 - 直接字符映射
             if hasattr(self, 'full_text') and self.full_text:
@@ -397,10 +507,10 @@ class CaptionWidget(QWidget):
                     self.tc_typing_complete.emit()
     
     def _update_character_based_sync(self, target_pos):
-        """ 備用：原有的字符比例同步方法"""
+        """🔥 優化：字符同步方法 - 實現實時TTS同步"""
         # 雙語模式
         if hasattr(self, 'en_text') and self.en_text:
-            # 英文直接同步到TTS位置
+            # 🔥 英文直接同步到TTS位置 - 實現實時效果
             en_target = min(target_pos, len(self.en_text))
             
             if en_target > self.en_index:
@@ -412,33 +522,10 @@ class CaptionWidget(QWidget):
                     self._en_completed = True
                     self.en_typing_complete.emit()
             
-            # 🔥 優化：中文同步邏輯 - 確保中英文真正同步
+            # 🔥 簡化中文同步邏輯 - 直接按比例同步
             if hasattr(self, 'tc_text') and self.tc_text:
                 en_progress = self.en_index / len(self.en_text) if len(self.en_text) > 0 else 0
-                
-                # 🎯 新增：使用更精確的同步算法
-                # 考慮中英文的語言特性差異
-                if len(self.tc_text) > 0:
-                    # 基於實際字符比例進行更精確的映射
-                    tc_char_ratio = len(self.tc_text) / len(self.en_text) if len(self.en_text) > 0 else 1.0
-                    
-                    # 調整同步速度 - 考慮中文字符通常比英文單詞表達更緊湊
-                    if tc_char_ratio < 0.8:  # 中文明顯少於英文
-                        # 中文稍微領先，確保視覺效果自然
-                        sync_adjustment = 1.1
-                    elif tc_char_ratio > 1.2:  # 中文明顯多於英文
-                        # 中文稍微滯後，平衡顯示
-                        sync_adjustment = 0.9
-                    else:
-                        # 長度相近，正常同步
-                        sync_adjustment = 1.0
-                    
-                    adjusted_progress = min(en_progress * sync_adjustment, 1.0)
-                    tc_target = int(adjusted_progress * len(self.tc_text))
-                    
-                    # print(f"🔄 字幕同步: EN {self.en_index}/{len(self.en_text)} ({en_progress:.2f}) -> TC {tc_target}/{len(self.tc_text)} (ratio:{tc_char_ratio:.2f}, adj:{sync_adjustment:.2f})")
-                else:
-                    tc_target = int(en_progress * len(self.tc_text))
+                tc_target = int(en_progress * len(self.tc_text))
                 
                 if tc_target > self.tc_index:
                     self.tc_index = tc_target
@@ -462,9 +549,7 @@ class CaptionWidget(QWidget):
             self._update_single_normal()
             
     def _update_bilingual_normal(self):
-        """雙語常規更新 - 確保中英文同步"""
-        # 🔥 優化：雙語同步打字效果
-        
+        """雙語常規更新 - 按單詞顯示，英文比中文快"""
         # 計算英文進度
         en_completed = (hasattr(self, 'en_text') and hasattr(self, 'en_index') 
                        and self.en_index >= len(self.en_text))
@@ -479,31 +564,43 @@ class CaptionWidget(QWidget):
                 self.typing_complete.emit()
             return
         
-        # 同步推進中英文字幕
+        # 英文按單詞推進 - 英文會比中文快
         if hasattr(self, 'en_text') and self.en_text and not self._en_completed:
             if self.en_index < len(self.en_text):
-                # 🎯 改進：每次推進 1-3 個字符，提供更平滑的效果
-                chars_to_advance = min(2, len(self.en_text) - self.en_index)
-                self.en_index += chars_to_advance
-                self.en_current_text = self.en_text[:self.en_index]
+                # 找到下一個英文單詞的結束位置
+                next_word_end = self._find_next_word_end(self.en_text, self.en_index)
+                
+                if next_word_end > self.en_index:
+                    self.en_index = next_word_end
+                    self.en_current_text = self.en_text[:self.en_index]
+                else:
+                    # 顯示剩餘的所有英文
+                    self.en_index = len(self.en_text)
+                    self.en_current_text = self.en_text
                 
                 if self.en_index >= len(self.en_text):
                     self._en_completed = True
                     self.en_typing_complete.emit()
         
-        # 中文同步推進
+        # 中文同步推進 - 根據英文進度調整
         if hasattr(self, 'tc_text') and self.tc_text and not self._tc_completed:
             if self.tc_index < len(self.tc_text):
                 # 計算中文的同步位置
                 if hasattr(self, 'en_text') and len(self.en_text) > 0:
                     en_progress = self.en_index / len(self.en_text)
-                    target_tc_index = int(en_progress * len(self.tc_text))
                     
-                    # 🎯 改進：確保中文跟上英文進度，避免延遲
+                    # 中文稍微滯後，讓英文先顯示
+                    adjusted_progress = min(en_progress * 0.8, 1.0)  # 中文進度是英文的80%
+                    target_tc_index = int(adjusted_progress * len(self.tc_text))
+                    
+                    # 確保中文能跟上英文進度
                     if target_tc_index > self.tc_index:
-                        chars_to_advance = min(target_tc_index - self.tc_index, 
-                                             max(1, (target_tc_index - self.tc_index) // 2))
-                        self.tc_index += chars_to_advance
+                        # 中文按字符推進，但速度較慢
+                        self.tc_index += 1
+                        self.tc_current_text = self.tc_text[:self.tc_index]
+                    elif self._en_completed and self.tc_index < len(self.tc_text):
+                        # 如果英文已完成但中文還沒完成，繼續推進中文
+                        self.tc_index += 1
                         self.tc_current_text = self.tc_text[:self.tc_index]
                 else:
                     # 如果沒有英文參考，正常推進
@@ -514,23 +611,24 @@ class CaptionWidget(QWidget):
                     self._tc_completed = True
                     self.tc_typing_complete.emit()
         
+        # 強制重繪
+        self.update()
+        
+        # 🔥 偶爾輸出進度（每顯示2個英文單詞）
+        if hasattr(self, 'en_index') and self._count_words(self.en_current_text) % 2 == 0:
+            en_words = self._count_words(self.en_current_text)
+            total_en_words = self._count_words(self.en_text) if self.en_text else 0
+            tc_chars = len(self.tc_current_text)
+            total_tc_chars = len(self.tc_text) if self.tc_text else 0
+            print(f"   雙語進度: EN {en_words}/{total_en_words} 單詞, TC {tc_chars}/{total_tc_chars} 字符")
+        
         # 檢查整體完成狀態
         if self._en_completed and self._tc_completed and not self._typing_completed:
             self._typing_completed = True
             print("📝 雙語字幕全部顯示完成")
             self.typing_complete.emit()
             
-    def _update_single_normal(self):
-        """單語常規更新"""
-        if hasattr(self, 'full_text') and self.current_index < len(self.full_text):
-            self.current_index += 1
-            self.current_text = self.full_text[:self.current_index]
-            self.update()
-        else:
-            if not self._typing_completed:
-                self._typing_completed = True
-                self.display_timer.stop()
-                self.typing_complete.emit()
+
             
     def disable_tts_sync(self):
         """禁用TTS同步並完成顯示"""
@@ -593,15 +691,7 @@ class CaptionWidget(QWidget):
     def paintEvent(self, event):
         """繪製字幕和背景"""
         if not self.is_showing:
-            print("字幕元件未顯示，跳過繪製")
             return
-            
-        if self.is_bilingual_mode:
-            tc_text = getattr(self, 'tc_current_text', '')
-            en_text = getattr(self, 'en_current_text', '')
-            print(f"繪製字幕: is_showing={self.is_showing}, tc_text='{tc_text}', en_text='{en_text}', is_bilingual={self.is_bilingual_mode}")
-        else:
-            print(f"繪製字幕: is_showing={self.is_showing}, current_text='{self.current_text}', is_bilingual={self.is_bilingual_mode}")
         
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

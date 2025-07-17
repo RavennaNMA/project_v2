@@ -160,17 +160,27 @@ class StateMachine(QObject):
                     
     def on_llm_complete(self, response):
         """AI 分析完成"""
+        print(f"🔍 StateMachine.on_llm_complete: 當前狀態 = {self.current_state.value}")
         if self.current_state == SystemState.LLM_LOADING:
             # 暫存武器列表
             self.pending_weapons = response.get('weapons', [])
+            print(f"🎯 暫存武器列表: {self.pending_weapons}")
+            print(f"🔄 轉換到CAPTION狀態")
             self.transition_to(SystemState.CAPTION)
+            print(f"📡 發送字幕顯示請求信號")
             self.caption_display_requested.emit(response)
+        else:
+            print(f"⚠️ 警告: LLM完成時狀態機不在LLM_LOADING狀態，當前狀態: {self.current_state.value}")
             
     def on_caption_complete(self):
         """字幕顯示完成（包括打字和等待）"""
+        print(f"🔍 StateMachine.on_caption_complete: 當前狀態 = {self.current_state.value}")
         if self.current_state == SystemState.CAPTION:
             # 進入聚光燈狀態
+            print(f"🔄 轉換到SPOTLIGHT狀態")
             self.transition_to(SystemState.SPOTLIGHT)
+        else:
+            print(f"⚠️ 警告: 字幕完成時狀態機不在CAPTION狀態，當前狀態: {self.current_state.value}")
             
     def on_spotlight_ready(self):
         """聚光燈準備完成，可以顯示武器"""

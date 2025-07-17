@@ -1,5 +1,5 @@
 中文名稱,參數名稱,預設值,說明
-調試模式英文字幕,debug_caption_en,An easy target for dogs.,調試模式下的英文字幕內容
+調試模式英文字幕,debug_caption_en,An easy target for dogs,調試模式下的英文字幕內容
 調試模式中文字幕,debug_caption_tc,易遭軍犬追擊。,調試模式下的中文字幕內容
 調試武器1,debug_weapon_1,01,第一個顯示的武器編號
 調試武器2,debug_weapon_2,02,第二個顯示的武器編號  

@@ -20,7 +20,7 @@
 Section,Key,Value,Description
 
 # 基本動畫參數 - 更穩定的設定
-BASIC,position_smooth,0.04,位置變化平滑度 降低位置變化速度更穩定
+BASIC,position_smooth,0.1,位置變化平滑度 降低位置變化速度更穩定
 BASIC,state1_duration,150,外框角落線條出現時間(幀)
 BASIC,state2_duration,150,內框出現時間(幀)
 BASIC,state3_duration,30,十字線開始延伸時間(幀)
@@ -66,4 +66,4 @@ VISUAL,color_r,255,紅色分量(0-255)
 VISUAL,color_g,255,綠色分量(0-255)
 VISUAL,color_b,255,藍色分量(0-255)
 VISUAL,alpha,200,整體透明度(0-255)
-VISUAL,flicker_probability,0.2,閃爍機率(0.0-1.0) 
+VISUAL,flicker_probability,0.15,閃爍機率(0.0-1.0) 
