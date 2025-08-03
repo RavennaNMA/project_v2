@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QPainter, QImage, QPixmap
 from PyQt6.QtCore import QTimer, pyqtSignal
 from utils import AnimConfigLoader
+from .cal_windows_effect import DetectionWindowEffect, MIN_LIFE, MAX_LIFE, SPAWN_RATE
 
 
 class VisualRect:
@@ -15,8 +16,6 @@ class VisualRect:
     
     def __init__(self, x, y, w, h, config):
         self.config = config
-        
-        # 🔧 修正：將矩形轉換為正方形，以較大的邊為基準
         face_size = max(w, h)
         
         # 從配置獲取框放大倍數 (配置檔案中設定的值)
@@ -26,7 +25,7 @@ class VisualRect:
         target_w = face_size * size_multiplier
         target_h = face_size * size_multiplier
         
-        # ✅ 初始化，但使用配置檔案的參數
+        #  初始化，但使用配置檔案的參數
         self.target_x = x
         self.target_y = y
         self.target_w = target_w
@@ -43,12 +42,14 @@ class VisualRect:
         self.state = 0
         self.start_line = 0
         self.end_line = 0
-        
-        # ✅ 從配置檔案讀取動畫時長（支援你的700幀設計）
+
         self.state1_duration = self.config.get_int('BASIC', 'state1_duration', 200)
         self.state2_duration = self.config.get_int('BASIC', 'state2_duration', 200) 
         self.state3_duration = self.config.get_int('BASIC', 'state3_duration', 60)
         self.state4_duration = self.config.get_int('BASIC', 'state4_duration', 240)
+        
+        # 閃爍狀態（供窗口效果同步使用）
+        self.is_flickering = False
         
         # 計算累積時間點
         self.state1_end = self.state1_duration
@@ -69,21 +70,21 @@ class VisualRect:
         # 🔧 修正：使用正方形尺寸
         square_size = face_size * size_multiplier
         
-        # ✅ 更新目標
+        #  更新目標
         self.target_x = target_x
         self.target_y = target_y
         self.target_w = square_size
         self.target_h = square_size
         
-        # ✅ 使用配置檔案的位置平滑參數
+        #  使用配置檔案的位置平滑參數
         position_smooth = self.config.get_float('BASIC', 'position_smooth', 0.03)
         self.x += (self.target_x - self.x) * position_smooth
         self.y += (self.target_y - self.y) * position_smooth
         
-        # ✅ 時間計數
+        #  時間計數
         self.time_count += 1
         
-        # ✅ 使用配置檔案的狀態邏輯（支援你的700幀設計）
+        #  使用配置檔案的狀態邏輯（支援你的700幀設計）
         if self.time_count < self.state1_end:
             self.state = 1
         elif self.time_count < self.state2_end:
@@ -92,9 +93,9 @@ class VisualRect:
             self.state = 3
         elif self.time_count < self.state4_end:
             self.state = 4
-        # ✅ 關鍵：到達最終狀態後保持在state 4，不重置
+        #  關鍵：到達最終狀態後保持在state 4，不重置
         
-        # ✅ 使用配置檔案的動畫平滑參數
+        #  使用配置檔案的動畫平滑參數
         if self.state == 1:
             outside_smooth = self.config.get_float('STATE1', 'outside_smooth', 0.05)
             self.outside_w += (self.target_w - self.outside_w) * outside_smooth
@@ -129,9 +130,12 @@ class VisualRect:
 
     def draw(self, frame):
         """繪製邏輯 - 使用配置檔案的閃爍參數"""
-        # ✅ 使用配置檔案的閃爍機率
+        #  使用配置檔案的閃爍機率
         flicker_probability = self.config.get_float('VISUAL', 'flicker_probability', 0.2)
         show = random.random() > flicker_probability
+        
+        # 保存閃爍狀態供窗口效果使用
+        self.is_flickering = not show
         
         if show and (self.state in [1, 2, 3, 4]):
             # 使用設定檔中的顏色 (BGR格式)
@@ -277,6 +281,9 @@ class DetectionOverlay(QWidget):
         # 檢測框列表
         self.visual_rects = []
         
+        # 科技感窗口效果管理器
+        self.window_effect = DetectionWindowEffect(screen_width=1280, screen_height=720)
+        
         # 當前檢測到的人臉
         self.current_faces = []
         self.has_faces = False
@@ -287,6 +294,9 @@ class DetectionOverlay(QWidget):
         self.fps = 0
         
         print(f"檢測框動畫初始化完成，使用主循環更新模式，支援高品質700幀動畫（60 FPS）")
+        print(f"科技感窗口效果已啟用，支援以檢測框為中心的動態窗口動畫")
+        print(f"窗口生命週期: {MIN_LIFE}-{MAX_LIFE} 幀，生成率: {SPAWN_RATE*100:.1f}%")
+        print(f"獨立模式可用 - 調用 enable_standalone_window_effect(True) 啟用LLM載入效果")
     
     def update_visual_rects_main_loop(self, faces):
         """主循環更新方法 - 完全按照參考代碼邏輯"""
@@ -319,6 +329,19 @@ class DetectionOverlay(QWidget):
         # 更新當前人臉列表
         self.current_faces = faces
         
+        # 更新科技感窗口效果
+        self.window_effect.update_faces(faces)
+        
+        # 更新獨立模式（如果啟用）
+        self.window_effect.update_standalone_mode()
+        
+        # 同步檢測框與窗口的閃爍狀態
+        for i, rect in enumerate(self.visual_rects):
+            if hasattr(rect, 'is_flickering'):
+                self.window_effect.set_flicker_state_for_face(i, rect.is_flickering)
+                # 同時同步獨立模式的閃爍狀態
+                self.window_effect.set_standalone_flicker_state(rect.is_flickering)
+        
         # 更新FPS統計
         self.frame_count += 1
         import time
@@ -343,19 +366,34 @@ class DetectionOverlay(QWidget):
         pass
     
     def draw_on_frame(self, frame):
-        """在OpenCV幀上繪製檢測框"""
+        """在OpenCV幀上繪製檢測框和科技感窗口效果"""
         if not self.visual_rects:
             return frame
+        
+        # 獲取顏色配置
+        color_bgr = self.anim_config.get_color_bgr()
         
         # 為每個視覺矩形繪製動畫
         for rect in self.visual_rects:
             rect.draw(frame)
         
+        # 繪製科技感窗口效果
+        self.window_effect.draw_all_windows(frame, color_bgr)
+        
         return frame
     
     def clear_detections(self):
-        """清除所有檢測框 - 按照參考代碼邏輯"""
+        """清除所有檢測框和人臉相關窗口效果 - 保留獨立模式窗口"""
         self.update_visual_rects_main_loop([])  # 空的人臉列表
+        # 只清除人臉相關的窗口，保留獨立模式的窗口
+        self.window_effect.windows_by_face.clear()
+        self.window_effect.center_points_by_face.clear()
+    
+    def clear_all_effects(self):
+        """清除所有效果（包括獨立模式）"""
+        self.update_visual_rects_main_loop([])  # 空的人臉列表
+        self.window_effect.clear_all_windows()  # 清除所有窗口效果
+        self.window_effect.enable_standalone_mode(False)  # 禁用獨立模式
     
     def reload_config(self):
         """重新載入動畫配置 - 不重置動畫進度"""
@@ -370,7 +408,7 @@ class DetectionOverlay(QWidget):
                 print(f"  {error}")
         
         for rect in self.visual_rects:
-            rect.config = self.anim_confi
+            rect.config = self.anim_config
         
         print(f"配置重載完成，動畫狀態保持不變")
     
@@ -385,7 +423,8 @@ class DetectionOverlay(QWidget):
             'total_rects': len(self.visual_rects),
             'animation_fps': self.fps,
             'total_duration': total_duration,  # 使用配置檔案的實際總時長
-            'has_faces': self.has_faces
+            'has_faces': self.has_faces,
+            'total_windows': self.window_effect.get_total_window_count()  # 科技感窗口總數
         }
         
         if self.visual_rects:
@@ -397,6 +436,23 @@ class DetectionOverlay(QWidget):
             })
         
         return info
+    
+    def enable_standalone_window_effect(self, enable=True):
+        """啟用/禁用獨立窗口效果（用於LLM載入等場景）"""
+        self.window_effect.enable_standalone_mode(enable)
+    
+    def update_standalone_windows(self):
+        """獨立更新窗口效果（不依賴人臉檢測）"""
+        self.window_effect.update_standalone_mode()
+        
+        # 更新FPS統計
+        self.frame_count += 1
+        import time
+        current_time = time.time()
+        if current_time - self.last_fps_update >= 1.0:
+            self.fps = self.frame_count
+            self.frame_count = 0
+            self.last_fps_update = current_time
         
     def paintEvent(self, event):
         """PyQt繪製事件 - 目前主要用於調試"""

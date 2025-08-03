@@ -36,7 +36,7 @@ class CameraThread(QThread):
             # 🚀 恢復高FPS：設定相機參數 - 支援高品質動畫
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-            self.cap.set(cv2.CAP_PROP_FPS, 60)  # ✅ 恢復60 FPS支援流暢動畫
+            self.cap.set(cv2.CAP_PROP_FPS, 60)  #  恢復60 FPS支援流暢動畫
             
             # 🚀 FPS 優化：設定額外的相機優化參數
             try:
@@ -66,7 +66,7 @@ class CameraThread(QThread):
                     self.error_occurred.emit("讀取畫面失敗")
                     break
                     
-                # ✅ 恢復60 FPS對應的睡眠時間 (1000ms / 60fps ≈ 16ms)
+                #  恢復60 FPS對應的睡眠時間 (1000ms / 60fps ≈ 16ms)
                 self.msleep(16)  # 支援流暢動畫的60 FPS
                 
         except Exception as e:

@@ -291,7 +291,7 @@ class KokoroTTSWorker(QThread):
                 if progress > self.current_position:
                     self.current_position = progress
                     self.tts_progress.emit(progress, self.text_length)
-                    print(f"✅ 片段完成: {chunk[:20]}... 進度: {progress}/{self.text_length} ({filtered_progress_ratio*100:.1f}%)")
+                    print(f" 片段完成: {chunk[:20]}... 進度: {progress}/{self.text_length} ({filtered_progress_ratio*100:.1f}%)")
                 
                 # 💪 確保字幕完成顯示 - 大幅減少重複發送
                 self.tts_progress.emit(progress, self.text_length)

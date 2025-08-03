@@ -141,7 +141,7 @@ class SSRThread(QThread):
                 self.ssr1_active = False
                 
                 # 🔥 重要：發出 SSR1 準備完成信號
-                print("✅ SSR1 處理完成，發出準備信號")
+                print(" SSR1 處理完成，發出準備信號")
                 self.ssr1_ready.emit()
                 
                 # 🔥 可選：如果您希望ESP32(C)在SSR1完成後自動設為LOW，請取消註釋以下代碼
@@ -185,7 +185,7 @@ class SSRThread(QThread):
                 self.ssr2_active = False
                 
                 # 🔥 重要：發出 SSR2 準備完成信號
-                print("✅ SSR2 處理完成，發出準備信號")
+                print(" SSR2 處理完成，發出準備信號")
                 self.ssr2_ready.emit()
                 
             self.msleep(50)  # 短暫休眠

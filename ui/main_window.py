@@ -288,7 +288,6 @@ class MainWindow(QMainWindow):
             # 在這些狀態中清除檢測動畫
             self.detection_overlay.clear_detections()
             
-            # 🔥 確保調試標籤始終在最上層
             if hasattr(self, 'debug_label') and self.debug_label.isVisible():
                 self.debug_label.raise_()
         elif state == SystemState.RESET:
@@ -311,7 +310,6 @@ class MainWindow(QMainWindow):
             self.first_frame_received = True
             self.loading_label.hide()
         
-        # 🚀 FPS 優化：使用更快的裁切和縮放
         cropped_frame = self.crop_frame_to_portrait_fast(frame)
         
         # 根據 mini mode 進行縮放
@@ -322,7 +320,6 @@ class MainWindow(QMainWindow):
             target_width = 1080
             target_height = 1920
         
-        # 🚀 FPS 優化：只在必要時縮放，使用更快的插值
         if cropped_frame.shape[1] != target_width or cropped_frame.shape[0] != target_height:
             cropped_frame = cv2.resize(cropped_frame, (target_width, target_height), 
                                      interpolation=cv2.INTER_LINEAR)  # 已經是最快的品質插值
@@ -401,7 +398,6 @@ class MainWindow(QMainWindow):
         crop_x = 622  # 預計算：(1920 - 675) // 2
         crop_y = 0
         
-        # 🚀 使用更高效的切片操作
         cropped_frame = frame[crop_y:crop_y + 1080, crop_x:crop_x + target_crop_width]
         
         # 縮放到目標尺寸1080x1920（保持正確比例，不會拉伸變形）
@@ -488,20 +484,20 @@ class MainWindow(QMainWindow):
         weapon_list = self.config_loader.get_weapon_list()
         # 從配置獲取LLM回應超時時間
         llm_timeout = self.config.get('llm_response_timeout', 10)
-        print(f"🤖 開始LLM分析: 超時設定 = {llm_timeout}秒")
-        print(f"🔍 正常模式: 啟動Ollama分析")
+        print(f" 開始LLM分析: 超時設定 = {llm_timeout}秒")
+        print(f" 正常模式: 啟動Ollama分析")
         self.ollama_service.analyze_image(image_path, weapon_list, llm_timeout)
         
     def on_llm_complete(self, response):
         """AI 分析完成"""
-        print(f"🎯 LLM分析完成，回應類型: {type(response)}")
-        print(f"📝 回應內容: {response}")
-        print(f"🔍 當前狀態機狀態: {self.state_machine.current_state.value}")
+        print(f" LLM分析完成，回應類型: {type(response)}")
+        print(f" 回應內容: {response}")
+        print(f" 當前狀態機狀態: {self.state_machine.current_state.value}")
         self.state_machine.on_llm_complete(response)
         
     def display_caption(self, response):
         """顯示字幕和截圖"""
-        print(f"🎬 display_caption 被調用:")
+        print(f" display_caption 被調用:")
         print(f"   回應類型: {type(response)}")
         print(f"   回應內容: {response}")
         print(f"   當前模式: {'No-LLM' if self.startup_params['no_llm_mode'] else 'Normal'}")
@@ -512,7 +508,7 @@ class MainWindow(QMainWindow):
             return
             
         self.caption_displayed = True
-        print("✅ 設置字幕顯示標誌")
+        print(" 設置字幕顯示標誌")
         
         # 重置完成狀態
         self.caption_completed = False
@@ -527,7 +523,6 @@ class MainWindow(QMainWindow):
         self.ssr_controller.start_caption_lighting()
         self.ssr_controller.print_debug_status()
         
-        # 🔥 新增：如果 ESP32 未連接或調試模式，直接顯示字幕
         esp32_connected = self.esp32_controller and self.esp32_controller.is_connected
         print(f"🔌 ESP32連接狀態檢查:")
         print(f"   ESP32控制器存在: {self.esp32_controller is not None}")
@@ -544,7 +539,6 @@ class MainWindow(QMainWindow):
         else:
             print("🔧 正常模式，等待SSR1信號")
             print("   SSR1信號將在SSR控制器完成後發送")
-            # 🔥 新增：在正常模式下也檢查ESP32連接狀態
             if not esp32_connected:
                 print("⚠️ 正常模式下ESP32未連接，使用短延遲顯示字幕")
                 QTimer.singleShot(500, self.on_caption_lighting_ready)
@@ -585,8 +579,7 @@ class MainWindow(QMainWindow):
         # 從配置獲取打字速度
         typing_speed = self.config.get('caption_typing_speed', 50)
         
-        # 🔥 調試輸出
-        print(f"📝 準備顯示字幕:")
+        print(f" 準備顯示字幕:")
         print(f"   中文: {caption_tc[:50]}..." if caption_tc else "   中文: (無)")
         print(f"   英文: {caption_en[:50]}..." if caption_en else "   英文: (無)")
         print(f"   打字速度: {typing_speed}ms/字")
@@ -608,7 +601,7 @@ class MainWindow(QMainWindow):
             # 配置字幕打字效果
             if tts_enabled and not no_llm_mode and caption_en and hasattr(self, 'tts_service'):
                 # TTS模式：字幕與語音同步
-                print("🎙️ 啟用TTS同步字幕顯示")
+                print(" 啟用TTS同步字幕顯示")
                 self.caption_widget.enable_tts_sync(caption_en)
                 
                 # 估算TTS時長並設定超時保護
@@ -616,7 +609,7 @@ class MainWindow(QMainWindow):
                 effective_wpm = 140  # 有效WPM（考慮標點和停頓）
                 estimated_duration = len(words) / effective_wpm * 60 if effective_wpm > 0 else 10
                 timeout_duration = max(estimated_duration * 1.5, 8.0)  # 至少8秒，最多1.5倍預估時間
-                print(f"🕰️ 設定TTS超時保護: {timeout_duration:.1f}秒")
+                print(f" 設定TTS超時保護: {timeout_duration:.1f}秒")
                 
                 # 設定備用完成計時器
                 QTimer.singleShot(int(timeout_duration * 1000), self.on_tts_timeout_fallback)
@@ -624,14 +617,16 @@ class MainWindow(QMainWindow):
                 # 啟動TTS
                 self.tts_service.speak_text(caption_en)
             else:
-                print(f"🎙️ 跳過TTS播放: {tts_skip_reason}")
+                print(f" 跳過TTS播放: {tts_skip_reason}")
                 self.tts_completed = True
             
             # 🔧 確保字幕元件可見並在最上層
             self.caption_widget.show()
             self.caption_widget.raise_()  # 確保字幕元件在最上層
-            
-            # 🔥 調試：檢查字幕元件狀態
+
+            self.caption_widget.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
+            self.caption_widget.raise_()
+
             print(f"📺 字幕元件狀態:")
             print(f"   可見: {self.caption_widget.isVisible()}")
             print(f"   位置: {self.caption_widget.pos()}")
@@ -639,16 +634,16 @@ class MainWindow(QMainWindow):
             
             # 顯示字幕
             if caption_tc and caption_en:
-                print("🌐 顯示雙語字幕")
+                print(" 顯示雙語字幕")
                 self.caption_widget.is_bilingual_mode = True  # 強制重置
                 print(f"主程式呼叫 show_bilingual_caption, typing_speed={typing_speed}")
                 self.caption_widget.show_bilingual_caption(caption_tc, caption_en, typing_speed)
                 print(f"主程式: 計時器狀態: {self.caption_widget.display_timer.isActive()}")
             elif caption_en:
-                print("🔤 顯示英文字幕")
+                print(" 顯示英文字幕")
                 self.caption_widget.show_caption(caption_en, typing_speed)
             elif caption_tc:
-                print("🈵 顯示中文字幕")
+                print(" 顯示中文字幕")
                 self.caption_widget.show_caption(caption_tc, typing_speed)
                 
             # 強制更新顯示
@@ -765,7 +760,7 @@ class MainWindow(QMainWindow):
         # 顯示黑屏遮罩
         self.black_overlay.show()
         
-        # 🔥 確保調試標籤始終在最上層
+        #  確保調試標籤始終在最上層
         if hasattr(self, 'debug_label') and self.debug_label.isVisible():
             self.debug_label.raise_()
             
@@ -905,8 +900,7 @@ class MainWindow(QMainWindow):
         self.tts_completed = True
         self.wait_timer_completed = False
         self.caption_displayed = False  # 重置防重複標記
-        
-        # 🔥 NEW: 清理待處理的回應數據
+    
         self.pending_caption_response = None
         
         # 確保所有SSR關閉
@@ -1044,8 +1038,7 @@ Window: {self.window_width}x{self.window_height}
 """ + "\n".join(esp32_status_lines) + "\n\n=== ESP32 腳位狀態 ===\n" + "\n".join(esp32_pin_lines)
             
             self.debug_label.setText(debug_text)
-            
-            # 🔥 確保調試標籤始終在最上層
+
             self.debug_label.raise_()
             
     def closeEvent(self, event):

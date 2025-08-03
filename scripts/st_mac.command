@@ -15,7 +15,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo "================================"
-echo -e "${GREEN}防禦偵測系統 - Mac 版 v2 (偵錯模式)${NC}"
+echo -e "${GREEN}System- Mac v2 (Debug)${NC}"
 echo "================================"
 echo "工作目錄: $(pwd)"
 
@@ -35,7 +35,7 @@ else
 fi
 
 PYTHON_VERSION=$($PYTHON_CMD --version)
-echo -e "${GREEN}✅ Python 版本: $PYTHON_VERSION${NC}"
+echo -e "${GREEN} Python 版本: $PYTHON_VERSION${NC}"
 
 # 檢查虛擬環境
 if [ -d "venv" ]; then
@@ -54,11 +54,11 @@ else
     
     echo -e "${BLUE}檢查 Mac 特定依賴項...${NC}"
     if [[ $(uname -m) == "arm64" ]]; then
-        echo -e "${GREEN}✅ 檢測到 Apple Silicon (M1/M2/M3/M4)${NC}"
+        echo -e "${GREEN}檢測到 Apple Silicon (M1/M2/M3/M4)${NC}"
         echo "使用優化版本的 PyTorch..."
         pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu || echo -e "${YELLOW}⚠️ torch 安裝失敗，將使用預設版本${NC}"
     else
-        echo -e "${GREEN}✅ 檢測到 Intel Mac${NC}"
+        echo -e "${GREEN}檢測到 Intel Mac${NC}"
     fi
 fi
 
@@ -115,13 +115,13 @@ EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then
     echo ""
-    echo -e "${GREEN}✅ 程式正常結束${NC}"
+    echo -e "${GREEN}程式正常結束${NC}"
 else
     echo ""
-    echo -e "${RED}❌ 程式異常結束 (Exit Code: $EXIT_CODE)${NC}"
+    echo -e "${RED}程式異常結束 (Exit Code: $EXIT_CODE)${NC}"
     
     echo ""
-    echo -e "${YELLOW}🔧 偵錯資訊：${NC}"
+    echo -e "${YELLOW}偵錯資訊：${NC}"
     echo "啟動時間: $START_TIME"
     echo "結束時間: $(date)"
     echo "工作目錄: $(pwd)"

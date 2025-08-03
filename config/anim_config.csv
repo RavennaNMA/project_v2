@@ -20,30 +20,30 @@
 Section,Key,Value,Description
 
 # 基本動畫參數 - 更穩定的設定
-BASIC,position_smooth,0.1,位置變化平滑度 降低位置變化速度更穩定
-BASIC,state1_duration,150,外框角落線條出現時間(幀)
-BASIC,state2_duration,150,內框出現時間(幀)
-BASIC,state3_duration,30,十字線開始延伸時間(幀)
-BASIC,state4_duration,200,十字線完全延伸時間(幀)
+BASIC,position_smooth,0.5,位置變化平滑度 降低位置變化速度更穩定
+BASIC,state1_duration,80,外框角落線條出現時間(幀)
+BASIC,state2_duration,80,內框出現時間(幀)
+BASIC,state3_duration,10,十字線開始延伸時間(幀)
+BASIC,state4_duration,20,十字線完全延伸時間(幀)
 BASIC,frame_size_multiplier,1.3,檢測框放大倍數
 
 # 狀態1設定 - 外框角落線條出現
-STATE1,outside_smooth,0.05,外框尺寸變化的平滑度
+STATE1,outside_smooth,0.5,外框尺寸變化的平滑度
 STATE1,corner_length_ratio,0.07,角落線條長度比例(0-0.5)
 STATE1,line_thickness,1,線條粗細(像素)
 
 # 狀態2設定 - 內框出現
-STATE2,outside_smooth,0.05,外框尺寸變化的平滑度
-STATE2,inner_smooth,0.04,內框尺寸變化的平滑度
+STATE2,outside_smooth,0.5,外框尺寸變化的平滑度
+STATE2,inner_smooth,0.2,內框尺寸變化的平滑度
 STATE2,inner_alpha,50,內框透明度(0-255)
 STATE2,inner_size_ratio,0.9,內框相對於外框的尺寸比例(0-1)
 STATE2,corner_length_ratio,0.07,角落線條長度比例
 STATE2,line_thickness,1,線條粗細
 
 # 狀態3設定 - 十字線開始出現
-STATE3,outside_smooth,0.05,外框尺寸變化的平滑度
-STATE3,inner_smooth,0.04,內框尺寸變化的平滑度
-STATE3,cross_start_smooth,0.04,十字線起始部分的變化平滑度
+STATE3,outside_smooth,0.5,外框尺寸變化的平滑度
+STATE3,inner_smooth,0.2,內框尺寸變化的平滑度
+STATE3,cross_start_smooth,0.3,十字線起始部分的變化平滑度
 STATE3,cross_length_ratio_h,0.59,十字線垂直長度比例(0-1)
 STATE3,cross_length_ratio_w,0.55,十字線水平長度比例(0-1)
 STATE3,corner_length_ratio,0.07,角落線條長度比例
@@ -52,10 +52,10 @@ STATE3,inner_alpha,50,內框透明度
 STATE3,inner_size_ratio,0.9,內框尺寸比例
 
 # 狀態4設定 - 十字線完全延伸
-STATE4,outside_smooth,0.05,外框尺寸變化的平滑度
-STATE4,inner_smooth,0.04,內框尺寸變化的平滑度
-STATE4,cross_start_smooth,0.04,十字線起始部分的變化平滑度
-STATE4,cross_end_smooth,0.05,十字線終端部分的變化平滑度
+STATE4,outside_smooth,0.5,外框尺寸變化的平滑度
+STATE4,inner_smooth,0.2,內框尺寸變化的平滑度
+STATE4,cross_start_smooth,0.3,十字線起始部分的變化平滑度
+STATE4,cross_end_smooth,0.2,十字線終端部分的變化平滑度
 STATE4,cross_length_ratio_h,0.59,十字線垂直長度比例
 STATE4,cross_length_ratio_w,0.55,十字線水平長度比例
 STATE4,corner_length_ratio,0.07,角落線條長度比例

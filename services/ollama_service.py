@@ -76,7 +76,7 @@ class OllamaThread(QThread):
             # 呼叫 llava 模型 - 添加超時控制
             response = ollama.generate(
                 model=self.img_model,
-                prompt="Describe this person's appearance, clothing, and posture in detail.",
+                prompt="Describe this person’s appearance, clothing, and posture. Highlight unusual, contradictory, or exaggerated features. Avoid general terms. Keep it under 80 words.",
                 images=[image_data],
                 options={'timeout': self.llm_timeout}
             )
@@ -107,6 +107,11 @@ class OllamaThread(QThread):
                 image_description=image_description,
                 weapon_list=weapon_list_str
             )
+            
+            # 輸出完整提示詞用於調試
+            print(f"\n=== 發送給 LLM2 的完整提示詞 ===")
+            print(prompt)
+            print("=" * 80)
             
             # 計算超時時間
             timeout = remaining_time if remaining_time else self.llm_timeout
@@ -143,7 +148,7 @@ class OllamaThread(QThread):
         result = {
             'caption': '',
             'caption_tc': '',
-            'caption_en': '',  # 🔥 添加 caption_en 鍵
+            'caption_en': '',  # 
             'caption_segments': [],  # 英文分段
             'caption_tc_segments': [],  # 中文分段
             'weapons': []
