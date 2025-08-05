@@ -1,10 +1,19 @@
-根據以下人物描述，設計其戰場生存策略，請保持每段中英一一對應，內容完整但句數對齊，每段不超過120字。
+根據下方角色資訊，構思其在戰場上的創意生存策略。
+角色描述：{image_description}
+可選武器：{weapon_list}
 
-人物描述: {image_description}
-可選武器: {weapon_list}
+請根據提供的角色外觀與細節（如體型比例、穿著風格、裝備配置與姿勢），推斷其潛在弱點與戰場威脅類型。選擇三項與歷次回應完全不同的武器，說明其選擇理由與使用方式，並設計具備敘事性、策略性與邏輯合理性的生存流程。
+輸出格式強制規範：
 
-請根據其穿著、體型、裝備與姿態推測弱點與威脅，選三項武器並說明使用理由與具體用法。務必生成以下格式：
+1.僅輸出 一組 Caption_TC、Caption_EN、Weapons。
+2.不得在 Caption 區塊或 Weapons 區塊之外額外輸出任何說明、理由或流程。
+3.Caption_TC（繁體中文）與 Caption_EN（英文）必須句數完全一致，語意一對一對應。
+4.每段不得超過一百二十字。
+5.Caption_TC 禁止出現英文字或數字。
+6.Caption_EN 禁止出現中文或數字。
 
-Caption_TC: [繁體中文，不得出現英文字或數字]
-Caption_EN: [English only, no Chinese or numbers]
-Weapons: [三項武器代碼，格式如 01, 03, 06]
+
+輸出範例（務必仿照此結構與長度）：
+Caption_TC:此人步伐沉穩但略顯遲緩，低重心使其不利於快速脫離戰區，易成軍犬攻擊焦點。建議配備閃光燈、安全帽與散彈電磁砲，以正面對抗創造脫困機會。面對撲擊時，他先以閃光致盲對方，俯身以安全帽承受撞擊，接著以背部的電磁砲對地開火，藉由震波驅離敵方。依靠堅固裝備與穩定姿態，他能全身而退，迅速重新投入戰局。  
+Caption_EN:This person moves with deliberate steps but lacks speed, and his low center of gravity limits quick retreat, making him a likely target for attack dogs. Recommended gear: flash emitter, reinforced helmet, and shockwave scatter cannon—ideal for close-quarters disruption and escape. When the dogs charge, he uses a flash to blind them, braces with his helmet for impact, then fires his back-mounted cannon at the ground to repel them. With solid gear and a grounded stance, he retreats safely and reenters the fight.  
+Weapons:[06, 02, 08]

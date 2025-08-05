@@ -8,8 +8,11 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QPainter, QImage, QPixmap
 from PyQt6.QtCore import QTimer, pyqtSignal
 from utils import AnimConfigLoader
-from .cal_windows_effect import DetectionWindowEffect, MIN_LIFE, MAX_LIFE, SPAWN_RATE
+from .cal_windows_effect import ImprovedDetectionWindowEffect, update_global_frame_count, get_global_frame_count
 
+# 全域frame_count變數
+frame_count = 0
+CONTENT_ANIMATION_SPEED = 0.1
 
 class VisualRect:
     """視覺矩形動畫類 - 完全基於參考代碼實現"""
@@ -21,9 +24,19 @@ class VisualRect:
         # 從配置獲取框放大倍數 (配置檔案中設定的值)
         size_multiplier = self.config.get_float('BASIC', 'frame_size_multiplier', 1.3)
         
-        # 🔧 修正：使用正方形尺寸
+        # 🔧 修改：從週期配置獲取高度倍數和底部偏移
+        # 載入週期配置
+        from utils import ConfigLoader
+        period_config = ConfigLoader().load_period_config()
+        height_multiplier = period_config.get('detect_frame_height_multiplier', 1.5)
+        bottom_offset_ratio = period_config.get('detect_frame_bottom_offset', 0.2)
+        
+        # 計算目標尺寸
         target_w = face_size * size_multiplier
-        target_h = face_size * size_multiplier
+        target_h = face_size * size_multiplier * height_multiplier
+        
+        # 計算底部偏移
+        self.bottom_offset = target_h * bottom_offset_ratio
         
         #  初始化，但使用配置檔案的參數
         self.target_x = x
@@ -61,20 +74,26 @@ class VisualRect:
         
     def update(self, target_x, target_y, target_w, target_h):
         """更新邏輯 - 使用配置檔案的平滑參數"""
-        # 🔧 修正：將矩形轉換為正方形，以較大的邊為基準
+        # 🔧 修改：將矩形轉換為非正方形，高度更大
         face_size = max(target_w, target_h)
         
         # 從配置獲取框放大倍數
         size_multiplier = self.config.get_float('BASIC', 'frame_size_multiplier', 1.3)
         
-        # 🔧 修正：使用正方形尺寸
-        square_size = face_size * size_multiplier
+        # 🔧 修改：從週期配置獲取高度倍數
+        # 載入週期配置
+        from utils import ConfigLoader
+        period_config = ConfigLoader().load_period_config()
+        height_multiplier = period_config.get('detect_frame_height_multiplier', 1.5)
+        
+        # 計算目標尺寸
+        base_size = face_size * size_multiplier
         
         #  更新目標
         self.target_x = target_x
         self.target_y = target_y
-        self.target_w = square_size
-        self.target_h = square_size
+        self.target_w = base_size
+        self.target_h = base_size * height_multiplier
         
         #  使用配置檔案的位置平滑參數
         position_smooth = self.config.get_float('BASIC', 'position_smooth', 0.03)
@@ -268,193 +287,158 @@ class DetectionOverlay(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        # 載入動畫配置
+        # 載入配置
         self.anim_config = AnimConfigLoader()
         
         # 驗證配置
         config_errors = self.anim_config.validate_config()
         if config_errors:
-            print("動畫配置警告:")
             for key, error in config_errors.items():
                 print(f"  {error}")
         
-        # 檢測框列表
+        # 初始化視覺矩形列表
         self.visual_rects = []
         
-        # 科技感窗口效果管理器
-        self.window_effect = DetectionWindowEffect(screen_width=1280, screen_height=720)
+        # 初始化改進的窗口效果
+        self.window_effect = ImprovedDetectionWindowEffect(
+            screen_width=1080, 
+            screen_height=1920, 
+            config=self.anim_config
+        )
         
-        # 當前檢測到的人臉
-        self.current_faces = []
-        self.has_faces = False
-        
-        # 性能統計
-        self.frame_count = 0
-        self.last_fps_update = 0
-        self.fps = 0
-        
-        print(f"檢測框動畫初始化完成，使用主循環更新模式，支援高品質700幀動畫（60 FPS）")
-        print(f"科技感窗口效果已啟用，支援以檢測框為中心的動態窗口動畫")
-        print(f"窗口生命週期: {MIN_LIFE}-{MAX_LIFE} 幀，生成率: {SPAWN_RATE*100:.1f}%")
-        print(f"獨立模式可用 - 調用 enable_standalone_window_effect(True) 啟用LLM載入效果")
+        # 檢查是否啟用 cal windows effect
+        self.cal_windows_enabled = self.anim_config.get_bool('BASIC', 'enabled', True)
     
     def update_visual_rects_main_loop(self, faces):
-        """主循環更新方法 - 完全按照參考代碼邏輯"""
-        # 更新檢測狀態
-        new_has_faces = len(faces) > 0
-        if new_has_faces != self.has_faces:
-            self.has_faces = new_has_faces
-            self.detection_updated.emit(self.has_faces)
+        """主要更新循環 - 整合 cal windows effect"""
+        # 更新全域幀計數
+        update_global_frame_count()
         
-        # 更新視覺效果矩形
+        # 更新視覺矩形數量
         while len(self.visual_rects) > len(faces):
             self.visual_rects.pop()
+        
         while len(self.visual_rects) < len(faces):
             if len(faces) > len(self.visual_rects):
                 x, y, w, h = faces[len(self.visual_rects)]
-                # 轉換為中心點座標
                 center_x = x + w // 2
                 center_y = y + h // 2
                 rect = VisualRect(center_x, center_y, w, h, self.anim_config)
                 self.visual_rects.append(rect)
-                print(f"創建新的檢測框動畫 (總數: {len(self.visual_rects)})")
         
+        # 更新臉部狀態
+        face_states = {}
         for i, (x, y, w, h) in enumerate(faces):
             if i < len(self.visual_rects):
-                # 轉換為中心點座標
                 center_x = x + w // 2
                 center_y = y + h // 2
                 self.visual_rects[i].update(center_x, center_y, w, h)
+                
+                face_states[i] = self.visual_rects[i].state
         
-        # 更新當前人臉列表
-        self.current_faces = faces
-        
-        # 更新科技感窗口效果
-        self.window_effect.update_faces(faces)
-        
-        # 更新獨立模式（如果啟用）
-        self.window_effect.update_standalone_mode()
-        
-        # 同步檢測框與窗口的閃爍狀態
-        for i, rect in enumerate(self.visual_rects):
-            if hasattr(rect, 'is_flickering'):
-                self.window_effect.set_flicker_state_for_face(i, rect.is_flickering)
-                # 同時同步獨立模式的閃爍狀態
-                self.window_effect.set_standalone_flicker_state(rect.is_flickering)
-        
-        # 更新FPS統計
-        self.frame_count += 1
-        import time
-        current_time = time.time()
-        if current_time - self.last_fps_update >= 1.0:
-            self.fps = self.frame_count
-            self.frame_count = 0
-            self.last_fps_update = current_time
+        # 更新 cal windows effect（如果啟用）
+        if self.cal_windows_enabled:
+            self.window_effect.update_faces(faces, face_states)
+            
+            # 同步閃爍狀態
+            for i, rect in enumerate(self.visual_rects):
+                if hasattr(rect, 'is_flickering'):
+                    self.window_effect.set_flicker_state_for_face(i, rect.is_flickering)
+                if i in self.window_effect.windows_by_face:
+                    for window in self.window_effect.windows_by_face[i]:
+                        window.set_detection_state(rect.state)
     
     def update_faces(self, faces):
-        """保留的相容性方法 - 重定向到主循環更新"""
+        """更新臉部檢測結果"""
         self.update_visual_rects_main_loop(faces)
     
     def update_animation(self):
-        """移除獨立動畫更新 - 現在在主循環中統一處理"""
-        # 這個方法現在只用於調試，實際更新在 update_visual_rects_main_loop 中
-        pass
+        """更新動畫"""
+        self._update_visual_rects()
     
     def _update_visual_rects(self):
-        """移除獨立的矩形更新 - 現在在主循環中統一處理"""
-        # 這個方法不再需要，所有更新邏輯都在 update_visual_rects_main_loop 中
-        pass
+        """更新視覺矩形"""
+        for rect in self.visual_rects:
+            rect.update(rect.target_x, rect.target_y, rect.target_w, rect.target_h)
     
     def draw_on_frame(self, frame):
-        """在OpenCV幀上繪製檢測框和科技感窗口效果"""
-        if not self.visual_rects:
-            return frame
-        
-        # 獲取顏色配置
+        """在幀上繪製所有效果"""
         color_bgr = self.anim_config.get_color_bgr()
         
-        # 為每個視覺矩形繪製動畫
+        # 繪製視覺矩形
         for rect in self.visual_rects:
             rect.draw(frame)
         
-        # 繪製科技感窗口效果
-        self.window_effect.draw_all_windows(frame, color_bgr)
+        # 繪製 cal windows（如果啟用）
+        if self.cal_windows_enabled:
+            self.window_effect.draw_all_windows(frame, color_bgr)
         
         return frame
     
     def clear_detections(self):
-        """清除所有檢測框和人臉相關窗口效果 - 保留獨立模式窗口"""
-        self.update_visual_rects_main_loop([])  # 空的人臉列表
-        # 只清除人臉相關的窗口，保留獨立模式的窗口
-        self.window_effect.windows_by_face.clear()
-        self.window_effect.center_points_by_face.clear()
+        """清除檢測結果"""
+        self.visual_rects.clear()
+        if self.cal_windows_enabled:
+            self.window_effect.clear_all_windows()
+            # 重置 fade 狀態，確保下次檢測時 cal windows 能正常顯示
+            self.window_effect.reset_fade_state()
     
     def clear_all_effects(self):
-        """清除所有效果（包括獨立模式）"""
-        self.update_visual_rects_main_loop([])  # 空的人臉列表
-        self.window_effect.clear_all_windows()  # 清除所有窗口效果
-        self.window_effect.enable_standalone_mode(False)  # 禁用獨立模式
+        """清除所有效果"""
+        self.visual_rects.clear()
+        if self.cal_windows_enabled:
+            self.window_effect.clear_all_windows()
+            
+    def start_fade_out(self):
+        """開始消失效果"""
+        print("🎭 Detection Overlay 開始消失效果")
+        # 清除所有檢測框和 cal windows
+        self.clear_detections()
+        self.clear_all_effects()
     
     def reload_config(self):
-        """重新載入動畫配置 - 不重置動畫進度"""
-        print("重新載入檢測框動畫配置...")
+        """重新載入配置"""
         self.anim_config.reload_config()
         
-        # 驗證新配置
-        config_errors = self.anim_config.validate_config()
-        if config_errors:
-            print("動畫配置警告:")
-            for key, error in config_errors.items():
-                print(f"  {error}")
+        # 重新檢查是否啟用 cal windows effect
+        self.cal_windows_enabled = self.anim_config.get_bool('BASIC', 'enabled', True)
         
-        for rect in self.visual_rects:
-            rect.config = self.anim_config
-        
-        print(f"配置重載完成，動畫狀態保持不變")
+        # 重新初始化窗口效果
+        if self.cal_windows_enabled:
+            self.window_effect = ImprovedDetectionWindowEffect(
+                screen_width=1080, 
+                screen_height=1920, 
+                config=self.anim_config
+            )
     
     def get_animation_info(self):
         """獲取動畫信息"""
-        # 從第一個矩形獲取總時長
-        total_duration = 700  # 預設值
-        if self.visual_rects:
-            total_duration = self.visual_rects[0].state4_end
-            
         info = {
-            'total_rects': len(self.visual_rects),
-            'animation_fps': self.fps,
-            'total_duration': total_duration,  # 使用配置檔案的實際總時長
-            'has_faces': self.has_faces,
-            'total_windows': self.window_effect.get_total_window_count()  # 科技感窗口總數
+            'rect_count': len(self.visual_rects),
+            'current_state': self.visual_rects[0].state if self.visual_rects else 0,
+            'is_flickering': self.visual_rects[0].is_flickering if self.visual_rects else False
         }
         
-        if self.visual_rects:
-            rect = self.visual_rects[0]  # 取第一個矩形的狀態
-            info.update({
-                'current_state': rect.state,
-                'time_count': rect.time_count,
-                'animation_progress': min(100, (rect.time_count / total_duration) * 100)  # 基於實際總時長
-            })
+        # 添加 cal windows 信息
+        if self.cal_windows_enabled:
+            info['window_count'] = self.window_effect.get_total_window_count()
+            info['cal_windows_enabled'] = True
+        else:
+            info['window_count'] = 0
+            info['cal_windows_enabled'] = False
         
         return info
     
     def enable_standalone_window_effect(self, enable=True):
-        """啟用/禁用獨立窗口效果（用於LLM載入等場景）"""
-        self.window_effect.enable_standalone_mode(enable)
+        """啟用獨立窗口效果（向後兼容）"""
+        self.cal_windows_enabled = enable
     
     def update_standalone_windows(self):
-        """獨立更新窗口效果（不依賴人臉檢測）"""
-        self.window_effect.update_standalone_mode()
-        
-        # 更新FPS統計
-        self.frame_count += 1
-        import time
-        current_time = time.time()
-        if current_time - self.last_fps_update >= 1.0:
-            self.fps = self.frame_count
-            self.frame_count = 0
-            self.last_fps_update = current_time
-        
+        """更新獨立窗口（向後兼容）"""
+        if self.cal_windows_enabled:
+            # 這裡可以添加額外的窗口更新邏輯
+            pass
+    
     def paintEvent(self, event):
-        """PyQt繪製事件 - 目前主要用於調試"""
+        """繪製事件（如果需要）"""
         super().paintEvent(event)
-        # 這裡可以添加額外的PyQt繪製邏輯，但主要繪製在OpenCV幀上進行

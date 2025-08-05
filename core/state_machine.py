@@ -11,6 +11,8 @@ class SystemState(Enum):
     DETECTING = "DETECTING"
     SCREENSHOT_TRIGGER = "SCREENSHOT_TRIGGER" 
     LLM_LOADING = "LLM_LOADING"
+    CAL_WINDOW_FADE = "CAL_WINDOW_FADE"  # Cal Window 消失狀態
+    DETECT_FRAME_FADE = "DETECT_FRAME_FADE"  # Detect Frame 消失狀態
     CAPTION = "CAPTION"
     SPOTLIGHT = "SPOTLIGHT"  # 新增聚光燈狀態
     IMG_SHOW = "IMG_SHOW"
@@ -26,6 +28,8 @@ class StateMachine(QObject):
     # 各狀態事件信號
     screenshot_requested = pyqtSignal()
     llm_analysis_requested = pyqtSignal(str)  # 圖片路徑
+    cal_window_fade_requested = pyqtSignal()  # Cal Window 消失信號
+    detect_frame_fade_requested = pyqtSignal()  # Detect Frame 消失信號
     caption_display_requested = pyqtSignal(dict)  # AI 回應
     spotlight_requested = pyqtSignal()  # 新增聚光燈信號
     weapon_display_requested = pyqtSignal(list)  # 武器列表
@@ -40,6 +44,7 @@ class StateMachine(QObject):
         self.face_detected = False
         self.no_llm_mode = False
         self.pending_weapons = []  # 暫存武器列表
+        self.pending_llm_response = None  # 暫存 LLM 回應
         
         # 計時器
         self.state_timer = QTimer()
@@ -108,6 +113,28 @@ class StateMachine(QObject):
             # 等待 AI 分析完成
             pass
             
+        elif state == SystemState.CAL_WINDOW_FADE:
+            # Cal Window 消失狀態
+            self.cal_window_fade_requested.emit()
+            # 從配置讀取 fade frames
+            if self.config_loader:
+                fade_frames = self.config_loader.get_int('BASIC', 'cal_window_fade_frames', 200)
+            else:
+                fade_frames = 200  # 默認值
+            print(f"🎭 Cal Window Fade: 等待 {fade_frames} 幀")
+            self.state_timer.start(fade_frames * 16)  # 假設 60fps，16ms 每幀
+            
+        elif state == SystemState.DETECT_FRAME_FADE:
+            # Detect Frame 消失狀態
+            self.detect_frame_fade_requested.emit()
+            # 從配置讀取 fade frames
+            if self.config_loader:
+                fade_frames = self.config_loader.get_int('BASIC', 'detect_frame_fade_frames', 400)
+            else:
+                fade_frames = 400  # 默認值
+            print(f"🎭 Detect Frame Fade: 等待 {fade_frames} 幀")
+            self.state_timer.start(fade_frames * 16)  # 假設 60fps，16ms 每幀
+            
         elif state == SystemState.CAPTION:
             # 字幕顯示不使用計時器，等待完成信號
             pass
@@ -131,7 +158,18 @@ class StateMachine(QObject):
         """處理狀態超時"""
         self.state_timer.stop()
         
-        if self.current_state == SystemState.RESET:
+        if self.current_state == SystemState.CAL_WINDOW_FADE:
+            # Cal Window 消失完成，進入 Detect Frame 消失狀態
+            self.transition_to(SystemState.DETECT_FRAME_FADE)
+            
+        elif self.current_state == SystemState.DETECT_FRAME_FADE:
+            # Detect Frame 消失完成，進入字幕狀態並發送字幕顯示請求
+            self.transition_to(SystemState.CAPTION)
+            # 發送字幕顯示請求信號
+            if self.pending_llm_response:
+                self.caption_display_requested.emit(self.pending_llm_response)
+            
+        elif self.current_state == SystemState.RESET:
             # 冷卻完成，返回偵測
             self.transition_to(SystemState.DETECTING)
             
@@ -162,13 +200,13 @@ class StateMachine(QObject):
         """AI 分析完成"""
         print(f"🔍 StateMachine.on_llm_complete: 當前狀態 = {self.current_state.value}")
         if self.current_state == SystemState.LLM_LOADING:
-            # 暫存武器列表
+            # 暫存武器列表和 LLM 回應
             self.pending_weapons = response.get('weapons', [])
+            self.pending_llm_response = response
             print(f"🎯 暫存武器列表: {self.pending_weapons}")
-            print(f"🔄 轉換到CAPTION狀態")
-            self.transition_to(SystemState.CAPTION)
-            print(f"📡 發送字幕顯示請求信號")
-            self.caption_display_requested.emit(response)
+            print(f"🎯 暫存 LLM 回應")
+            print(f"🔄 轉換到CAL_WINDOW_FADE狀態")
+            self.transition_to(SystemState.CAL_WINDOW_FADE)
         else:
             print(f"⚠️ 警告: LLM完成時狀態機不在LLM_LOADING狀態，當前狀態: {self.current_state.value}")
             

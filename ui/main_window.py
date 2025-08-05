@@ -71,8 +71,12 @@ class MainWindow(QMainWindow):
         
     def init_components(self):
         """初始化系統元件"""
-        # 核心元件 - 傳遞config_loader以支持調試模式
-        self.state_machine = StateMachine(self.config, self.config_loader)
+        # 創建 AnimConfigLoader 用於 cal windows 配置
+        from utils import AnimConfigLoader
+        self.anim_config_loader = AnimConfigLoader()
+        
+        # 核心元件 - 傳遞anim_config_loader以支持cal windows配置
+        self.state_machine = StateMachine(self.config, self.anim_config_loader)
         self.camera_manager = CameraManager()
         self.face_detector = FaceDetector(self.config)
         
@@ -220,6 +224,8 @@ class MainWindow(QMainWindow):
         self.state_machine.state_changed.connect(self.on_state_changed)
         self.state_machine.screenshot_requested.connect(self.take_screenshot)
         self.state_machine.llm_analysis_requested.connect(self.start_llm_analysis)
+        self.state_machine.cal_window_fade_requested.connect(self.on_cal_window_fade_requested)
+        self.state_machine.detect_frame_fade_requested.connect(self.on_detect_frame_fade_requested)
         self.state_machine.caption_display_requested.connect(self.display_caption)
         self.state_machine.spotlight_requested.connect(self.on_spotlight_requested)  # 新增
         self.state_machine.weapon_display_requested.connect(self.display_weapons)
@@ -303,6 +309,13 @@ class MainWindow(QMainWindow):
         """處理相機畫面 - 恢復完整的裁切和檢測邏輯"""
         self.frame_count += 1
         
+        # 更新全域幀計數（用於 cal windows 動畫）
+        try:
+            from ui.cal_windows_effect import update_global_frame_count
+            update_global_frame_count()
+        except ImportError:
+            pass  # 如果模組不可用，忽略錯誤
+        
         # 隱藏載入提示
         if not hasattr(self, 'first_frame_received'):
             self.first_frame_received = False
@@ -340,8 +353,11 @@ class MainWindow(QMainWindow):
                         self.state_machine.update_face_detection(True)
                     
                     if current_state not in [SystemState.CAPTION, SystemState.SPOTLIGHT, SystemState.IMG_SHOW]:
-                        # 將檢測框向上偏移一點（約框高度的20%）
-                        frame_offset_y = int(adjusted_bbox['height'] * 0.2)
+                        # 從週期配置獲取底部偏移參數
+                        bottom_offset_ratio = self.config.get('detect_frame_bottom_offset', 0.2)
+                        
+                        # 將檢測框向上偏移（根據配置的底部偏移比例）
+                        frame_offset_y = int(adjusted_bbox['height'] * bottom_offset_ratio)
                         adjusted_y = int(adjusted_bbox['y']) - frame_offset_y
                         
                         # 確保Y座標不會超出畫面邊界
@@ -371,6 +387,9 @@ class MainWindow(QMainWindow):
         # 按照參考代碼：在主循環中更新視覺矩形
         if hasattr(self.detection_overlay, 'update_visual_rects_main_loop'):
             self.detection_overlay.update_visual_rects_main_loop(faces)
+        else:
+            # 兼容性調用
+            self.detection_overlay.update_faces(faces)
         
         # 在幀上繪製檢測框
         final_frame = self.detection_overlay.draw_on_frame(cropped_frame)
@@ -493,6 +512,8 @@ class MainWindow(QMainWindow):
         print(f" LLM分析完成，回應類型: {type(response)}")
         print(f" 回應內容: {response}")
         print(f" 當前狀態機狀態: {self.state_machine.current_state.value}")
+        # 只通知狀態機，不直接顯示字幕
+        # 字幕顯示將由狀態機在適當的時機觸發
         self.state_machine.on_llm_complete(response)
         
     def display_caption(self, response):
@@ -502,11 +523,7 @@ class MainWindow(QMainWindow):
         print(f"   回應內容: {response}")
         print(f"   當前模式: {'No-LLM' if self.startup_params['no_llm_mode'] else 'Normal'}")
         
-        # 防止重複顯示
-        if self.caption_displayed:
-            print("⚠️ 字幕已顯示過，跳過")
-            return
-            
+        # 設置字幕顯示標誌，防止重複顯示
         self.caption_displayed = True
         print(" 設置字幕顯示標誌")
         
@@ -726,6 +743,18 @@ class MainWindow(QMainWindow):
             
             self.state_machine.on_caption_complete()
     
+    def on_cal_window_fade_requested(self):
+        """Cal Window 消失請求處理"""
+        print("🎭 Cal Window 消失請求")
+        if hasattr(self, 'detection_overlay') and hasattr(self.detection_overlay, 'window_effect'):
+            self.detection_overlay.window_effect.start_fade_out()
+            
+    def on_detect_frame_fade_requested(self):
+        """Detect Frame 消失請求處理"""
+        print("🎭 Detect Frame 消失請求")
+        if hasattr(self, 'detection_overlay'):
+            self.detection_overlay.start_fade_out()
+            
     def on_spotlight_requested(self):
         """聚光燈請求"""
         self.ssr_controller.start_spotlight()
@@ -890,6 +919,11 @@ class MainWindow(QMainWindow):
         self.caption_widget.hide()
         self.weapon_label.hide()
         self.black_overlay.hide()
+        
+        # 重置 cal windows fade 狀態
+        if hasattr(self.detection_overlay, 'window_effect'):
+            self.detection_overlay.window_effect.reset_fade_state()
+            print("🔄 重置 Cal Windows fade 狀態")
         
         # 清除狀態
         self.current_screenshot_path = None

@@ -13,6 +13,10 @@ class AnimConfigLoader:
         self.config_file = config_file
         self.config = {}
         self.load_config()
+        
+        # 載入 cal windows 配置
+        self.cal_windows_config = {}
+        self.load_cal_windows_config()
     
     def load_config(self):
         """載入配置文件"""
@@ -69,6 +73,100 @@ class AnimConfigLoader:
         except Exception as e:
             print(f"加載動畫配置文件失敗: {e}，使用默認設定")
             self.use_defaults()
+    
+    def load_cal_windows_config(self):
+        """載入 cal windows 配置"""
+        cal_windows_config_file = 'config/cal_windows_config.csv'
+        
+        if not os.path.exists(cal_windows_config_file):
+            print(f"Cal Windows 配置文件不存在: {cal_windows_config_file}，使用默認設定")
+            self.cal_windows_config = self._get_default_cal_windows_config()
+            return
+        
+        try:
+            config_dict = {}
+            
+            # 先过滤掉注释行，然后创建DictReader
+            lines = []
+            with open(cal_windows_config_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        lines.append(line)
+            
+            # 确保有标题行
+            if not lines:
+                raise ValueError("Cal Windows 配置文件为空或只有注释")
+            
+            # 使用StringIO创建CSV reader
+            from io import StringIO
+            csv_content = '\n'.join(lines)
+            csv_file = StringIO(csv_content)
+            reader = csv.DictReader(csv_file)
+            
+            for row in reader:
+                # 跳過空行
+                if not row.get('SECTION'):
+                    continue
+                
+                section = row['SECTION'].strip()
+                key = row['KEY'].strip()
+                value = row['VALUE'].strip()
+                
+                # 創建嵌套字典結構
+                if section not in config_dict:
+                    config_dict[section] = {}
+                
+                # 解析值的類型
+                config_dict[section][key] = self._parse_value(value)
+            
+            self.cal_windows_config = config_dict
+            print(f"Cal Windows 配置已加載，共 {len(self.cal_windows_config)} 個區段")
+                
+        except Exception as e:
+            print(f"加載 Cal Windows 配置文件失敗: {e}，使用默認設定")
+            self.cal_windows_config = self._get_default_cal_windows_config()
+    
+    def _get_default_cal_windows_config(self):
+        """獲取默認的 cal windows 配置"""
+        return {
+            'BASIC': {
+                'enabled': True,
+                'spawn_rate': 0.1,
+                'max_windows_per_face': 4,
+                'spawn_delay_frames': 30,
+                'min_life': 200,
+                'max_life': 400,
+                'connection_alpha': 120,
+                'window_alpha': 180,
+                'stable_connection_lines': True,
+                'line_smooth_factor': 0.8,
+                'window_smooth_factor': 0.15,
+                'spawn_point_smooth_factor': 0.12,
+                'cal_window_fade_frames': 10,
+                'detect_frame_fade_frames': 5
+            },
+            'POSITION': {
+                'min_radius': 200,
+                'max_radius': 350,
+                'quadrant_spread': 0.35,
+                'random_offset_ratio': 0.05,
+                'point_smooth_factor': 0.1
+            },
+            'VISUAL': {
+                'window_width_base': 160,
+                'window_height_base': 100,
+                'size_multiplier_min': 0.9,
+                'size_multiplier_max': 1.1,
+                'line_thickness': 1,
+                'inner_alpha': 50
+            },
+            'ANIMATION': {
+                'content_animation_speed': 0.1,
+                'frame_count_global': True,
+                'window_type_sequences': True
+            }
+        }
     
     def _parse_value(self, value: str) -> Union[str, int, float, bool]:
         """解析配置值的類型"""
@@ -168,7 +266,11 @@ class AnimConfigLoader:
         print("使用動畫默認配置")
     
     def get(self, section: str, key: str, default: Any = None) -> Any:
-        """獲取配置值"""
+        """獲取配置值 - 優先從 cal_windows_config 讀取"""
+        # 優先從 cal_windows_config 讀取
+        if section in self.cal_windows_config and key in self.cal_windows_config[section]:
+            return self.cal_windows_config[section][key]
+        # 如果 cal_windows_config 中沒有，則從主配置讀取
         return self.config.get(section, {}).get(key, default)
     
     def get_str(self, section: str, key: str, default: str = '') -> str:
@@ -203,9 +305,9 @@ class AnimConfigLoader:
             return bool(value)
     
     def reload_config(self):
-        """重新加載配置文件"""
-        print("重新加載動畫配置...")
+        """重新載入配置文件"""
         self.load_config()
+        self.load_cal_windows_config()
     
     def get_section(self, section: str) -> Dict[str, Any]:
         """獲取整個區段的配置"""
