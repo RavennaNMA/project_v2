@@ -35,6 +35,9 @@ class StateMachine(QObject):
     weapon_display_requested = pyqtSignal(list)  # 武器列表
     reset_requested = pyqtSignal()
     
+    # 🔥 新增：狀態相關燈光控制信號
+    state_lighting_requested = pyqtSignal(str)  # 狀態名稱
+    
     def __init__(self, config, config_loader=None):
         super().__init__()
         self.config = config
@@ -76,6 +79,9 @@ class StateMachine(QObject):
         
     def _enter_state(self, state):
         """進入新狀態的處理"""
+        # 🔥 每次狀態變更都發送燈光控制信號
+        self.state_lighting_requested.emit(state.value)
+        
         if state == SystemState.DETECTING:
             # 重置偵測
             self.detection_start_time = None

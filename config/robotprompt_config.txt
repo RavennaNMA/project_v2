@@ -1,0 +1,18 @@
+根據下方機器人資訊，分析其弱點並制定反制策略。
+機器人描述：{image_description}
+可選武器：{weapon_list}
+
+請根據機器人的結構特徵、感測器配置、移動方式等，識別其技術弱點。選擇三項最有效的反制工具，說明選擇理由與使用策略。
+要包含：機器人類型判斷、弱點分析、武器選擇理由、具體反制戰術。
+Caption_TC（繁體中文）與 Caption_EN（英文）必須句數完全對齊，一對一語意對應。各段不得超過100字。
+
+範例：
+Caption_TC:偵測到履帶式偵察機器人，其厚重裝甲與穩定推進系統，使它在戰場上如同一塊移動的鐵壁。若僅靠火力，難以迅速擊破。建議配備狙擊槍、高壓電磁模組與毛巾。狙擊槍並非為了直接擊毀，而是瞄準其紅外感測鏡頭與外露的聲納接收器，逐步剝奪感知。高壓電磁模組則能在關鍵時刻釋放，讓它的推進系統與內部通訊陷入混亂，出現短暫的「失明與失聰」。至於毛巾，看似簡陋，卻可用於掩蓋熱源、遮蔽小型紅外反射點，讓操作者短暫隱匿在感測網之下。這樣的組合不是以蠻力摧毀，而是以削弱、干擾、隱藏，逐步讓巨獸化為失效的空殼。
+Caption_EN:A tracked reconnaissance robot is detected, armored and steady like a moving wall. Direct fire would struggle to bring it down quickly.Recommended loadout: sniper rifle, high-voltage electromagnetic module, and a towel. The sniper rifle is not for full destruction but to disable its exposed sensors—infrared optics and sonar receivers—stripping its perception. The high-voltage electromagnetic module can then disrupt its propulsion and communication, leaving it momentarily blind and deaf. As for the towel, though humble, it can cover heat sources or mask minor infrared reflections, granting the operator brief concealment within the detection field.This is not brute destruction but a method of weakening, disturbing, and hiding, until the giant becomes nothing more than a stalled husk.
+Weapons: [02, 08, 10]
+
+請嚴格遵守以下格式回覆：
+Caption_TC: [繁體中文機器人反制策略，不含英文字或數字]
+Caption_EN: [English robot countermeasure strategy only, no Chinese or numbers]
+Weapons: [3項武器代號]
+

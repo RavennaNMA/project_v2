@@ -3,14 +3,15 @@
 
 from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QLabel, QGraphicsOpacityEffect, QApplication
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QRect
-from PyQt6.QtGui import QPainter, QPixmap, QFont, QFontDatabase
+from PyQt6.QtGui import QPainter, QPixmap, QFont, QFontDatabase, QCursor
 import os
 import cv2
 import numpy as np
-import time  # 添加缺少的time導入
+import time
 
 from core import StateMachine, SystemState, CameraManager, FaceDetector, ESP32Controller
-from core.ssr_controller import SSRController  # 新增SSR控制器
+from core.ssr_controller import SSRController
+from core.osc_controller import OSCController  # 新增OSC控制器
 from ui.detection_overlay import DetectionOverlay
 from ui.caption_widget import CaptionWidget
 from services import OllamaService, ImageService, TTSService
@@ -27,9 +28,7 @@ class MainWindow(QMainWindow):
         # 設定縮放因子和視窗尺寸
         self.scale_factor = 0.5 if startup_params.get('mini_mode', False) else 1.0
         
-        # 修正視窗尺寸：恢復豎屏格式1080x1920，適配直立螢幕
         if startup_params.get('fullscreen', False):
-            # 全螢幕模式使用螢幕尺寸
             from PyQt6.QtWidgets import QApplication
             screen = QApplication.primaryScreen()
             if screen:
@@ -37,24 +36,21 @@ class MainWindow(QMainWindow):
                 self.window_width = screen_geometry.width()
                 self.window_height = screen_geometry.height()
             else:
-                # 備用尺寸（您的螢幕尺寸）
                 self.window_width = 1080
                 self.window_height = 1920
         else:
-            # 視窗模式使用豎屏比例，適合您的1080x1920直立螢幕
-            base_width = 1080   # 您的螢幕寬度
-            base_height = 1920  # 您的螢幕高度  
+            base_width = 1080
+            base_height = 1920
             self.window_width = int(base_width * self.scale_factor)
             self.window_height = int(base_height * self.scale_factor)
         
-        print(f"🖥️ 視窗尺寸設定: {self.window_width}x{self.window_height} (縮放: {self.scale_factor})")
+        print(f"視窗尺寸設定: {self.window_width}x{self.window_height} (縮放: {self.scale_factor})")
         
         # 載入設定
         self.config_loader = ConfigLoader()
         self.config = self.config_loader.load_period_config()
         self.weapon_config = self.config_loader.load_weapon_config()
         
-        # 新增：顯示武器配置載入信息（對no-llm調試很重要）
         print(f"已載入 weapon_config.csv: {len(self.weapon_config)} 個武器")
         if self.startup_params['no_llm_mode']:
             print(f"No-LLM調試模式將使用以下武器配置:")
@@ -71,33 +67,52 @@ class MainWindow(QMainWindow):
         
     def init_components(self):
         """初始化系統元件"""
-        # 創建 AnimConfigLoader 用於 cal windows 配置
         from utils import AnimConfigLoader
         self.anim_config_loader = AnimConfigLoader()
         
-        # 核心元件 - 傳遞anim_config_loader以支持cal windows配置
         self.state_machine = StateMachine(self.config, self.anim_config_loader)
         self.camera_manager = CameraManager()
         self.face_detector = FaceDetector(self.config)
         
-        # ESP32 控制器（替代Arduino）
+        # ESP32 控制器
         self.esp32_controller = None
-        if self.startup_params['arduino_port']:  # 兼容性保留
+        self.no_esp32_mode = self.startup_params.get('no_esp32_mode', False)
+        
+        if not self.no_esp32_mode and self.startup_params['arduino_port']:
             self.esp32_controller = ESP32Controller()
             self.esp32_controller.connect()
+        elif self.no_esp32_mode:
+            print("無ESP32模式啟用 - 跳過硬體連接")
             
-        # SSR控制器
-        self.ssr_controller = SSRController(self.esp32_controller)
+        # OSC控制器
+        self.osc_controller = OSCController(self)
+        self.osc_controller.start()
+        
+        # 燈光控制器 (新版)
+        from core.ssr_controller import LightingController
+        self.lighting_controller = LightingController(
+            self.esp32_controller, 
+            self.osc_controller,
+            no_esp32_mode=self.no_esp32_mode
+        )
+        
+        # 兼容性別名
+        self.ssr_controller = self.lighting_controller
+        
+        # 連接燈光控制器信號到debug顯示
+        self.lighting_controller.status_changed.connect(self.on_lighting_status_changed)
+        self.lighting_controller.debug_message.connect(self.on_lighting_debug_message)
+        
+        # 用於debug顯示的燈光指令記錄
+        self.recent_light_commands = []
         
         # 服務
         self.ollama_service = OllamaService()
         self.image_service = ImageService()
         
-        # TTS 服務 - 根據配置啟用
         tts_enabled = self.startup_params.get('tts_enabled', True)
         self.tts_service = TTSService(enabled=tts_enabled)
         
-        # 設定TTS參數
         if self.tts_service.is_available():
             print(f"TTS 服務已啟用")
         
@@ -105,13 +120,12 @@ class MainWindow(QMainWindow):
         self.current_screenshot_path = None
         self.current_weapons = []
         self.weapon_display_index = 0
+        self.robot_mode = False  # 新增：機器人模式標記
         
         # 狀態完成追蹤
         self.caption_completed = False
         self.tts_completed = True
         self.wait_timer_completed = False
-        
-        # 防止重複顯示字幕
         self.caption_displayed = False
         
         # FPS 計算
@@ -121,6 +135,10 @@ class MainWindow(QMainWindow):
         self.frame_count = 0
         self.current_fps = 0
         
+        # ESP32 C計時器
+        self.esp32_c_timer = QTimer()
+        self.esp32_c_timer.timeout.connect(self.on_esp32_c_timeout)
+        
         # 兼容性別名
         self.arduino_controller = self.esp32_controller
         
@@ -129,51 +147,57 @@ class MainWindow(QMainWindow):
         title = "DefenseSystem" + (" - Mini Mode" if self.startup_params.get('mini_mode', False) else "")
         self.setWindowTitle(title)
         
-        # 設定視窗大小
+        # 設定視窗大小和隱藏游標
         if self.startup_params['fullscreen']:
             self.showFullScreen()
+            # 隱藏滑鼠游標
+            self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
+            # 移除macOS攝像頭指示燈（綠點）
+            self.setWindowFlags(Qt.WindowType.FramelessWindowHint | 
+                               Qt.WindowType.WindowStaysOnTopHint |
+                               Qt.WindowType.NoDropShadowWindowHint)
+            # 設定窗口屬性以避免系統級UI元素
+            self.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            # 確保窗口在最前
+            self.raise_()
+            self.activateWindow()
         else:
-            # 💪 修復視窗大小：移除邊框和標題欄，真正填滿螢幕
             self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
-            self.setFixedSize(self.window_width, self.window_height)
-            
-            # 確保視窗填滿螢幕（移動到左上角）
-            self.move(0, 0)
-            
-        # 設定黑色背景
-        self.setStyleSheet("background-color: black;")
+            self.resize(self.window_width, self.window_height)
+            # 視窗模式也隱藏游標
+            self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
         
-        # 主容器
+        # 中央元件
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
+        self.central_widget.setStyleSheet("background-color: black;")
         
         # 相機顯示
         self.camera_label = QLabel(self.central_widget)
         self.camera_label.resize(self.window_width, self.window_height)
-        self.camera_label.setScaledContents(False)
-        self.camera_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.camera_label.setStyleSheet("background-color: #111;")
+        self.camera_label.setScaledContents(True)
         
-        # 載入中提示
-        self.loading_label = QLabel("Loading camera...", self.central_widget)
-        loading_font_size = int(self.startup_params.get('loading_text_size', 24) * self.scale_factor)
-        self.loading_label.setStyleSheet("""
+        # 載入提示
+        self.loading_label = QLabel("系統啟動中...", self.central_widget)
+        self.loading_label.setStyleSheet(f"""
             color: white;
-            font-size: %dpx;
-            background-color: transparent;
-        """ % loading_font_size)
-        self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.loading_label.resize(self.window_width, 100)
-        self.loading_label.move(0, self.window_height // 2 - 50)
+            font-size: {int(20 * self.scale_factor)}px;
+            background-color: rgba(0, 0, 0, 128);
+            padding: {int(10 * self.scale_factor)}px;
+        """)
+        self.loading_label.adjustSize()
+        self.loading_label.move(
+            (self.window_width - self.loading_label.width()) // 2,
+            (self.window_height - self.loading_label.height()) // 2
+        )
         
-        # 偵測動畫層
+        # 偵測動畫覆蓋層
         self.detection_overlay = DetectionOverlay(self.central_widget)
         self.detection_overlay.resize(self.window_width, self.window_height)
+        self.detection_overlay.hide()
         
-        # 連接檢測狀態信號
-        self.detection_overlay.detection_updated.connect(self.on_detection_state_changed)
-        
-        # 截圖顯示層
+        # 截圖顯示
         self.screenshot_label = QLabel(self.central_widget)
         self.screenshot_label.resize(self.window_width, self.window_height)
         self.screenshot_label.setScaledContents(True)
@@ -188,8 +212,8 @@ class MainWindow(QMainWindow):
         # 武器圖片顯示
         self.weapon_label = QLabel(self.central_widget)
         self.weapon_label.resize(self.window_width, self.window_height)
+        self.weapon_label.setScaledContents(True)
         self.weapon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.weapon_label.setScaledContents(False)
         self.weapon_label.hide()
         
         # 黑屏遮罩
@@ -204,18 +228,15 @@ class MainWindow(QMainWindow):
             self.debug_label.move(int(5 * self.scale_factor), int(5 * self.scale_factor))
             self.debug_label.resize(int(450 * self.scale_factor), int(800 * self.scale_factor))
             debug_font_size = int(self.startup_params.get('debug_text_size', 16) * self.scale_factor)
-            self.debug_label.setStyleSheet("""
+            self.debug_label.setStyleSheet(f"""
                 color: white;
                 background-color: rgba(0, 0, 0, 192);
-                padding: %dpx;
+                padding: {int(8 * self.scale_factor)}px;
                 font-family: monospace;
-                font-size: %dpx;
+                font-size: {debug_font_size}px;
                 font-weight: bold;
-            """ % (int(8 * self.scale_factor), debug_font_size))
-            
-            # 設置調試標籤為始終在最上層
-
-            self.debug_label.raise_()  # 最頂層
+            """)
+            self.debug_label.raise_()
             self.debug_label.show()
             
     def connect_signals(self):
@@ -227,9 +248,12 @@ class MainWindow(QMainWindow):
         self.state_machine.cal_window_fade_requested.connect(self.on_cal_window_fade_requested)
         self.state_machine.detect_frame_fade_requested.connect(self.on_detect_frame_fade_requested)
         self.state_machine.caption_display_requested.connect(self.display_caption)
-        self.state_machine.spotlight_requested.connect(self.on_spotlight_requested)  # 新增
+        self.state_machine.spotlight_requested.connect(self.on_spotlight_requested)
         self.state_machine.weapon_display_requested.connect(self.display_weapons)
         self.state_machine.reset_requested.connect(self.reset_system)
+        
+        # 🔥 新增：狀態燈光控制信號
+        self.state_machine.state_lighting_requested.connect(self.lighting_controller.handle_state_lighting)
         
         # 相機信號
         self.camera_manager.frame_ready.connect(self.process_frame)
@@ -245,66 +269,364 @@ class MainWindow(QMainWindow):
         self.caption_widget.tc_typing_complete.connect(self.on_tc_typing_complete)
         self.caption_widget.en_typing_complete.connect(self.on_en_typing_complete)
         
-        # TTS 信號連接 - 確保即時字幕同步
+        # TTS 信號連接
         if hasattr(self, 'tts_service') and self.tts_service is not None:
-            # 連接 TTS 生命週期信號
             self.tts_service.tts_started.connect(self.on_tts_started)
             self.tts_service.tts_finished.connect(self.on_tts_finished)
             self.tts_service.tts_error.connect(self.on_tts_error)
-            
-            # 連接進度信號 - 這是即時打字效果的關鍵
             self.tts_service.tts_progress.connect(self.on_tts_progress)
             self.tts_service.tts_progress.connect(self.caption_widget.update_tts_progress)
-            
-            # 連接文字片段信號 - 提供更精細的同步
             self.tts_service.tts_word_progress.connect(self.on_tts_word_progress)
-            
+        
         # SSR控制器信號
         self.ssr_controller.spotlight_ready.connect(self.on_spotlight_ready)
-        self.ssr_controller.caption_lighting_ready.connect(self.on_caption_lighting_ready)  # 新增SSR1完成信號
+        self.ssr_controller.caption_lighting_ready.connect(self.on_caption_lighting_ready)
         
-    def start_system(self):
-        """啟動系統"""
-        # 設定 No LLM 模式
-        self.state_machine.set_no_llm_mode(self.startup_params['no_llm_mode'])
+    def on_robot_arrive(self):
+        """處理機器人到達事件（從OSC觸發）"""
+        if self.state_machine.current_state not in [SystemState.CAPTION, SystemState.IMG_SHOW]:
+            print("收到/robotarrive OSC指令，進入機器人模式")
+            self.robot_mode = True
+            # 強制觸發截圖和分析流程
+            self.state_machine.transition_to(SystemState.SCREENSHOT_TRIGGER)
+            
+    def take_screenshot(self):
+        """擷取螢幕截圖"""
+        # 無論哪種模式都擷取真實的webcam截圖
+        screenshot_path = self.camera_manager.take_screenshot()
+        if screenshot_path:
+            self.current_screenshot_path = screenshot_path
+            print(f"Screenshot saved: {screenshot_path}")
+            
+            if self.startup_params['no_llm_mode']:
+                if hasattr(self, 'config_loader'):
+                    debug_response = self.config_loader.get_debug_response()
+                    self.state_machine.on_llm_complete(debug_response)
+            else:
+                self.start_llm_analysis(screenshot_path)
+        else:
+            print("錯誤：無法擷取webcam截圖")
+                    
+    def start_llm_analysis(self, image_path):
+        """開始 AI 分析"""
+        weapon_list = self.config_loader.get_weapon_list()
+        llm_timeout = self.config.get('llm_response_timeout', 10)
         
-        # 啟動相機 - 修復：添加camera_index參數
-        camera_index = self.startup_params.get('camera_index', 0)
-        self.camera_manager.start(camera_index)
+        # 根據模式選擇不同的prompt和圖片
+        if self.robot_mode:
+            # 載入機器人專用prompt
+            self.ollama_service.load_robot_prompt()
+            # 在機器人模式下，使用robot.png而不是webcam截圖進行LLaVA分析
+            robot_image_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'robot_img', 'robot.png')
+            analysis_image_path = robot_image_path
+            print(f"機器人模式：使用robot.png進行LLaVA分析: {robot_image_path}")
+        else:
+            # 使用正常prompt
+            self.ollama_service.load_normal_prompt()
+            analysis_image_path = image_path
+            
+        print(f"開始LLM分析: 超時設定 = {llm_timeout}秒, 模式 = {'機器人' if self.robot_mode else '正常'}")
+        self.ollama_service.analyze_image(analysis_image_path, weapon_list, llm_timeout)
         
-        # 第一個畫面到達時隱藏載入提示
-        self.first_frame_received = False
+    def display_weapons(self, weapon_ids):
+        """顯示武器"""
+        print(f"display_weapons() called with weapon_ids: {weapon_ids}")
         
-        # 啟動狀態機
-        self.state_machine.start()
+        if not weapon_ids:
+            print("武器列表為空，直接完成")
+            self.state_machine.on_weapon_display_complete()
+            return
+            
+        print(f"開始顯示 {len(weapon_ids)} 個武器: {weapon_ids}")
+        
+        self.caption_widget.hide()
+        self.screenshot_label.hide()
+        self.black_overlay.show()
+        
+        if hasattr(self, 'debug_label') and self.debug_label.isVisible():
+            self.debug_label.raise_()
+            
+        self.weapon_display_index = 0
+        self.current_weapons = weapon_ids
+        self.display_next_weapon()
+        
+    def display_next_weapon(self):
+        """顯示下一個武器"""
+        if self.weapon_display_index >= len(self.current_weapons):
+            self.black_overlay.hide()
+            # 武器顯示完成，返回偵測狀態燈光
+            self.lighting_controller.set_detecting_lighting()
+            self.state_machine.on_weapon_display_complete()
+            return
+            
+        weapon_id = self.current_weapons[self.weapon_display_index]
+        weapon_info = self.weapon_config.get(weapon_id)
+        
+        print(f"Displaying weapon - ID: {weapon_id}, Index: {self.weapon_display_index}")
+        
+        if weapon_info:
+            # 顯示武器圖片
+            self.show_weapon_image(weapon_info)
+            
+            # 控制 ESP32 A (武器) 和燈光
+            if not self.no_esp32_mode and self.esp32_controller and weapon_info['pin']:
+                print(f"ESP32 A Control: Pin {weapon_info['pin']} -> HIGH for {weapon_info['high_time']}ms")
+                self.esp32_controller.control_pin(
+                    weapon_info['pin'],
+                    weapon_info['wait_before'],
+                    weapon_info['high_time'],
+                    weapon_info['wait_after']
+                )
+            
+            # 🔥 修復：不論是否為no_esp32_mode，都使用LightingController來處理武器燈光
+            # LightingController已經內建支援no_esp32_mode的模擬顯示和OSC發送
+            self.lighting_controller.activate_weapon_light(weapon_id, weapon_info['high_time'])
+                    
+            self.weapon_display_index += 1
+            total_time = weapon_info.get('wait_before', 0) + weapon_info.get('high_time', 1000) + weapon_info.get('wait_after', 500)
+            QTimer.singleShot(total_time, self.display_next_weapon)
+        else:
+            self.weapon_display_index += 1
+            self.display_next_weapon()
+            
+    # 舊的武器燈光控制方法已移除，現在使用 LightingController
         
     def on_state_changed(self, state):
         """狀態變更處理"""
         print(f"State changed to: {state.value}")
         
-        # 根據狀態控制檢測動畫顯示
         if state == SystemState.DETECTING:
-            # 顯示檢測動畫 - 不需要特別調用，在process_frame中會自動更新
+            # 🔥 重新顯示攝影機即時畫面
+            self.camera_label.show()
+            
             # 隱藏其他覆蓋層
             self.screenshot_label.hide()
             self.caption_widget.hide()
             self.weapon_label.hide()
             self.black_overlay.hide()
+            
+            # ESP32 C控制
+            if not self.no_esp32_mode and self.esp32_controller:
+                self.esp32_controller.set_esp32_pin_state('C', 4, 'HIGH', 0)
+                # 啟動10秒計時器
+                self.esp32_c_timer.stop()
+                self.esp32_c_timer.start(self.config.get('esp32_c_timeout', 10000))
+                
         elif state in [SystemState.CAPTION, SystemState.SPOTLIGHT, SystemState.IMG_SHOW]:
             # 在這些狀態中清除檢測動畫
             self.detection_overlay.clear_detections()
             
             if hasattr(self, 'debug_label') and self.debug_label.isVisible():
                 self.debug_label.raise_()
+                
+        # SPOTLIGHT狀態的燈光控制已由LightingController處理
+                
         elif state == SystemState.RESET:
-            # 重置狀態，清除檢測動畫
-            self.detection_overlay.clear_detections()
+            self.reset_system()
             
-    def on_detection_state_changed(self, is_detecting):
-        """檢測狀態變更"""
-        # 可以在此處理檢測狀態的UI反饋
-        pass
+    def on_esp32_c_timeout(self):
+        """ESP32 C超時處理"""
+        if self.state_machine.current_state == SystemState.DETECTING:
+            if not self.no_esp32_mode and self.esp32_controller:
+                print("ESP32 C timeout - turning OFF")
+                self.esp32_controller.set_esp32_pin_state('C', 4, 'LOW', 0)
+        self.esp32_c_timer.stop()
         
+    def reset_system(self):
+        """重置系統"""
+        print("System reset")
+        
+        # 重置機器人模式
+        self.robot_mode = False
+        
+        # 🔥 重新顯示攝影機畫面
+        self.camera_label.show()
+        
+        # 隱藏所有覆蓋層
+        self.detection_overlay.clear_detections()
+        self.screenshot_label.hide()
+        self.caption_widget.hide()
+        self.weapon_label.hide()
+        self.black_overlay.hide()
+        
+        # 重置 cal windows fade 狀態
+        if hasattr(self.detection_overlay, 'window_effect'):
+            self.detection_overlay.window_effect.reset_fade_state()
+            print("重置 Cal Windows fade 狀態")
+        
+        # 清除狀態
+        self.current_screenshot_path = None
+        self.current_weapons = []
+        
+        # 重置狀態追蹤
+        self.caption_completed = False
+        self.tts_completed = True
+        self.wait_timer_completed = False
+        self.caption_displayed = False
+        self.pending_caption_response = None
+        
+        # 使用新的燈光控制器重置燈光
+        print("🔄 重置燈光系統")
+        self.lighting_controller.reset_lighting()
+    
+    def on_lighting_status_changed(self, status):
+        """處理燈光狀態變化"""
+        import time
+        timestamp = time.strftime("%H:%M:%S")
+        
+        # 記錄最近的燈光指令
+        self.recent_light_commands.append(f"[{timestamp}] {status}")
+        
+        # 只保留最近10條記錄
+        if len(self.recent_light_commands) > 10:
+            self.recent_light_commands.pop(0)
+    
+    def on_lighting_debug_message(self, message):
+        """🔥 新增：處理燈光控制器的 debug 訊息"""
+        import time
+        timestamp = time.strftime("%H:%M:%S")
+        
+        # 記錄最近的燈光指令
+        self.recent_light_commands.append(f"[{timestamp}] {message}")
+        
+        # 只保留最近15條記錄（增加顯示數量）
+        if len(self.recent_light_commands) > 15:
+            self.recent_light_commands.pop(0)
+            
+    def update_debug_info(self):
+        """更新 Debug 資訊"""
+        if hasattr(self, 'debug_label'):
+            detection_time = self.state_machine.get_detection_time()
+            
+            if self.no_esp32_mode:
+                esp32_status = "No ESP32 Mode"
+            else:
+                esp32_status = "Connected" if self.esp32_controller and self.esp32_controller.is_connected else "Not connected"
+                
+            llm_mode = "No LLM" if self.startup_params['no_llm_mode'] else "Normal"
+            mode = "Mini Mode" if self.startup_params.get('mini_mode', False) else "Full Mode"
+            robot_status = "Robot Mode" if self.robot_mode else "Human Mode"
+            
+            weapons_display = "None"
+            if hasattr(self, 'current_weapons') and self.current_weapons:
+                weapons_display = f"[{', '.join(self.current_weapons)}]"
+            
+            ssr_status = "Off"
+            if hasattr(self, 'ssr_controller'):
+                if self.state_machine.current_state in [SystemState.CAPTION, SystemState.SPOTLIGHT, SystemState.IMG_SHOW]:
+                    ssr_status = "Active"
+            
+            debug_text = f"""State: {self.state_machine.current_state.value}
+FPS: {self.current_fps}
+Detection Time: {detection_time:.1f}s
+Mode: {robot_status}
+Controller: {esp32_status}
+SSR: {ssr_status}
+LLM Mode: {llm_mode}
+Display: {mode}
+Weapons: {weapons_display}
+Window: {self.window_width}x{self.window_height}
+OSC: A={self.osc_controller.get_status()}"""
+
+            if not self.no_esp32_mode and self.esp32_controller:
+                esp32_connections = self.esp32_controller.get_esp32_connections()
+                esp32_status_lines = []
+                for esp_name, is_connected in esp32_connections.items():
+                    status = "✓" if is_connected else "✗"
+                    esp32_status_lines.append(f"ESP32 {esp_name}: {status}")
+                debug_text += "\n\n=== ESP32 連接狀態 ===\n" + "\n".join(esp32_status_lines)
+                
+                # 添加真實ESP32腳位狀態
+                all_pin_states = self.esp32_controller.get_esp32_pin_states()
+                esp32_pin_lines = []
+                
+                # ESP32 A (武器控制)
+                if 'A' in all_pin_states:
+                    pins_a = []
+                    for weapon_id, weapon_info in self.weapon_config.items():
+                        if weapon_info['pin']:
+                            arduino_pin = weapon_info['pin']
+                            if arduino_pin in range(2, 12):
+                                esp_pin_map = {2:4, 3:5, 4:12, 5:13, 6:14, 7:16, 8:17, 9:18, 10:19, 11:21}
+                                if arduino_pin in esp_pin_map:
+                                    esp_pin = esp_pin_map[arduino_pin]
+                                    state = all_pin_states['A'].get(esp_pin, 'LOW')
+                                    pins_a.append(f"{weapon_info['name']}(D{arduino_pin}/G{esp_pin}):{state}")
+                    if pins_a:
+                        esp32_pin_lines.append("ESP32 A 武器:")
+                        esp32_pin_lines.extend([f"  {p}" for p in pins_a])
+                
+                # ESP32 B (SSR控制)
+                if 'B' in all_pin_states:
+                    esp32_pin_lines.append("ESP32 B SSR:")
+                    ssr1_pins = [4, 5, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23]
+                    ssr1_states = []
+                    for pin in ssr1_pins:
+                        state = all_pin_states['B'].get(pin, 'LOW')
+                        ssr1_states.append(f"G{pin}:{state}")
+                    
+                    for i in range(0, len(ssr1_states), 4):
+                        esp32_pin_lines.append(f"  SSR1: {' '.join(ssr1_states[i:i+4])}")
+                    
+                    ssr2_state = all_pin_states['B'].get(25, 'LOW')
+                    esp32_pin_lines.append(f"  SSR2(G25):{ssr2_state}")
+
+                # ESP32 C (安裝控制)
+                if 'C' in all_pin_states:
+                    install_state = all_pin_states['C'].get(4, 'LOW')
+                    esp32_pin_lines.append("ESP32 C:")
+                    esp32_pin_lines.append(f"  Installation(G4):{install_state}")
+                
+                if esp32_pin_lines:
+                    debug_text += "\n\n=== ESP32 腳位狀態 ===\n" + "\n".join(esp32_pin_lines)
+                    
+            elif self.no_esp32_mode:
+                debug_text += "\n\n=== 無ESP32模式 ===\n模擬硬體控制"
+                
+                # 🔥 修正：直接讀取燈光控制器的模擬狀態
+                virtual_pin_lines = []
+                simulated_states = self.lighting_controller.simulated_states
+                
+                # 虛擬 ESP32 A (武器控制)
+                virtual_pin_lines.append("虛擬 ESP32 A 武器:")
+                for weapon_id, weapon_info in self.weapon_config.items():
+                    if weapon_info['pin']:
+                        arduino_pin = weapon_info['pin']
+                        if arduino_pin in range(2, 12):
+                            esp_pin_map = {2:4, 3:5, 4:12, 5:13, 6:14, 7:16, 8:17, 9:18, 10:19, 11:21}
+                            if arduino_pin in esp_pin_map:
+                                esp_pin = esp_pin_map[arduino_pin]
+                                virtual_state = simulated_states['A'].get(esp_pin, 'LOW')
+                                virtual_pin_lines.append(f"  {weapon_info['name']}(D{arduino_pin}/G{esp_pin}):{virtual_state}")
+                
+                # 虛擬 ESP32 B (SSR控制)
+                virtual_pin_lines.append("虛擬 ESP32 B SSR:")
+                esp32b_pins = self.lighting_controller.all_esp32b_pins
+                ssr1_states = []
+                for pin in esp32b_pins:
+                    virtual_state = simulated_states['B'].get(pin, 'LOW')
+                    ssr1_states.append(f"G{pin}:{virtual_state}")
+                
+                # 分行顯示（每行4個）
+                for i in range(0, len(ssr1_states), 4):
+                    virtual_pin_lines.append(f"  {' '.join(ssr1_states[i:i+4])}")
+
+                # 虛擬 ESP32 C (安裝控制)
+                install_virtual_state = simulated_states['C'].get(4, 'LOW')
+                virtual_pin_lines.append("虛擬 ESP32 C:")
+                virtual_pin_lines.append(f"  Installation(G4):{install_virtual_state}")
+                
+                debug_text += "\n\n=== 虛擬腳位狀態 ===\n" + "\n".join(virtual_pin_lines)
+            
+            # 添加最近的燈光指令記錄
+            if hasattr(self, 'recent_light_commands') and self.recent_light_commands:
+                debug_text += "\n\n=== 最近燈光指令 ==="
+                for cmd in self.recent_light_commands[-5:]:  # 顯示最近5條
+                    debug_text += f"\n{cmd}"
+                
+            self.debug_label.setText(debug_text)
+            self.debug_label.raise_()
+            
     def process_frame(self, frame):
         """處理相機畫面 - 恢復完整的裁切和檢測邏輯"""
         self.frame_count += 1
@@ -428,53 +750,6 @@ class MainWindow(QMainWindow):
         
         return portrait_frame
         
-    def adjust_detection_coordinates_fast(self, detection_result, original_shape, display_width, display_height):
-        """ FPS 優化：快速版本的偵測座標調整（用於原始完整畫面）"""
-        # 安全檢查
-        if not detection_result or not isinstance(detection_result, dict):
-            return None
-            
-        # 檢查必要的鍵是否存在
-        if not all(key in detection_result for key in ['x', 'y', 'width', 'height']):
-            return None
-        
-        crop_x_offset = 622  # 預計算：(1920 - 675) // 2
-        
-        # 檢查偵測框是否在裁切區域內
-        face_left = detection_result['x']
-        face_right = detection_result['x'] + detection_result['width']
-        
-        # 如果人臉完全在裁切區域外，返回None
-        if face_right < crop_x_offset or face_left > crop_x_offset + 675:
-            return None
-        
-        # 調整X座標（減去裁切偏移）
-        adjusted_x = max(0, detection_result['x'] - crop_x_offset)
-        adjusted_width = min(detection_result['width'], 675 - adjusted_x)
-        
-        # Y座標不變（沒有Y方向裁切）
-        adjusted_y = detection_result['y']
-        adjusted_height = detection_result['height']
-        
-        # 步驟2：從675x1080縮放到1080x1920的座標調整（預計算比例）
-        scale_y = 1.777777778  # 預計算：1920 / 1080
-        final_y = adjusted_y * scale_y
-        final_height = adjusted_height * scale_y
-        
-        # 步驟3：最終縮放到顯示尺寸（預計算比例）
-        final_scale_x = display_width / 675  # 更精確的比例
-        final_scale_y = display_height / 1920
-        
-        final_result = {
-            'x': adjusted_x * final_scale_x,
-            'y': final_y * final_scale_y,
-            'width': adjusted_width * final_scale_x,
-            'height': final_height * final_scale_y,
-            'confidence': detection_result.get('confidence', 0)
-        }
-        
-        return final_result
-        
     def adjust_detection_coordinates_for_cropped_frame(self, detection_result, cropped_shape, display_width, display_height):
         """🔧 新增：專門處理裁切後畫面的座標調整"""
         # 安全檢查
@@ -523,154 +798,176 @@ class MainWindow(QMainWindow):
         
         return final_result
         
+    def adjust_detection_for_crop(self, detection_result, frame_shape):
+        """調整偵測結果以適應裁切後的畫面"""
+        original_height, original_width = frame_shape[:2]
+        display_width = self.window_width
+        display_height = self.window_height
+        
+        aspect_ratio_original = original_width / original_height
+        aspect_ratio_display = display_width / display_height
+        
+        if aspect_ratio_original > aspect_ratio_display:
+            scale = display_height / original_height
+            cropped_width = int(display_width / scale)
+            cropped_height = original_height
+            crop_x = (original_width - cropped_width) // 2
+            crop_y = 0
+        else:
+            scale = display_width / original_width
+            cropped_width = original_width
+            cropped_height = int(display_height / scale)
+            crop_x = 0
+            crop_y = (original_height - cropped_height) // 2
+            
+        face_left = detection_result['x'] - crop_x
+        face_top = detection_result['y'] - crop_y
+        
+        if face_left + detection_result['width'] < 0 or face_left > cropped_width:
+            return None
+        if face_top + detection_result['height'] < 0 or face_top > cropped_height:
+            return None
+        
+        adjusted_x = max(0, min(face_left, cropped_width))
+        adjusted_y = max(0, min(face_top, cropped_height))
+        adjusted_width = min(detection_result['width'], cropped_width - adjusted_x)
+        adjusted_height = min(detection_result['height'], cropped_height - adjusted_y)
+        
+        if adjusted_width < 10 or adjusted_height < 10:
+            return None
+        
+        scale_x = display_width / cropped_width
+        scale_y = display_height / cropped_height
+        
+        final_result = {
+            'x': adjusted_x * scale_x,
+            'y': adjusted_y * scale_y,
+            'width': adjusted_width * scale_x,
+            'height': adjusted_height * scale_y,
+            'confidence': detection_result.get('confidence', 0)
+        }
+        
+        return final_result
+        
     def on_face_detected(self, detected):
-        """人臉偵測回調 - 修復：使用正確的StateMachine API"""
-        # ESP32版本使用 update_face_detection 而不是 on_face_detected
+        """人臉偵測回調"""
         if hasattr(self.state_machine, 'update_face_detection'):
             self.state_machine.update_face_detection(detected)
-        
-    def take_screenshot(self):
-        """擷取螢幕截圖 - 修復：使用CameraManager的take_screenshot方法"""
-        # 使用CameraManager的截圖功能，而不是從UI控件截取
-        screenshot_path = self.camera_manager.take_screenshot()
-        
-        if screenshot_path:
-            self.current_screenshot_path = screenshot_path
-            print(f"Screenshot saved: {screenshot_path}")
             
-            # ESP32版本：screenshot_requested信號會自動觸發狀態轉換
-            # 不需要手動調用 on_screenshot_complete
-            if self.startup_params['no_llm_mode']:
-                # No LLM模式：直接使用config_loader的調試回應
-                if hasattr(self, 'config_loader'):
-                    debug_response = self.config_loader.get_debug_response()
-                    
-                    self.state_machine.on_llm_complete(debug_response)
-            else:
-                # 正常模式：啟動LLM分析
-                self.start_llm_analysis(screenshot_path)
-        
-    def start_llm_analysis(self, image_path):
-        """開始 AI 分析"""
-        weapon_list = self.config_loader.get_weapon_list()
-        # 從配置獲取LLM回應超時時間
-        llm_timeout = self.config.get('llm_response_timeout', 10)
-        print(f" 開始LLM分析: 超時設定 = {llm_timeout}秒")
-        print(f" 正常模式: 啟動Ollama分析")
-        self.ollama_service.analyze_image(image_path, weapon_list, llm_timeout)
-        
     def on_llm_complete(self, response):
         """AI 分析完成"""
-        print(f" LLM分析完成，回應類型: {type(response)}")
-        print(f" 回應內容: {response}")
-        print(f" 當前狀態機狀態: {self.state_machine.current_state.value}")
-        # 只通知狀態機，不直接顯示字幕
-        # 字幕顯示將由狀態機在適當的時機觸發
+        print(f"LLM分析完成，回應類型: {type(response)}")
+        print(f"回應內容: {response}")
+        print(f"當前狀態機狀態: {self.state_machine.current_state.value}")
         self.state_machine.on_llm_complete(response)
         
     def display_caption(self, response):
         """顯示字幕和截圖"""
-        print(f" display_caption 被調用:")
+        print(f"display_caption 被調用:")
         print(f"   回應類型: {type(response)}")
         print(f"   回應內容: {response}")
         print(f"   當前模式: {'No-LLM' if self.startup_params['no_llm_mode'] else 'Normal'}")
         
-        # 設置字幕顯示標誌，防止重複顯示
         self.caption_displayed = True
-        print(" 設置字幕顯示標誌")
-        
-        # 重置完成狀態
         self.caption_completed = False
-        self.tts_completed = False  # 修正：初始應為 False
+        self.tts_completed = False
         self.wait_timer_completed = False
         self.pending_caption_response = response
-        print("🔄 重置完成狀態")
         
-        # 啟動SSR1（字幕燈光）- 現在會等待配置的時間
         print("=== CAPTION STATE: Starting SSR1 (caption lighting) ===")
-        print("SSR1 will wait for configured time before triggering caption display...")
         self.ssr_controller.start_caption_lighting()
         self.ssr_controller.print_debug_status()
         
-        esp32_connected = self.esp32_controller and self.esp32_controller.is_connected
-        print(f"🔌 ESP32連接狀態檢查:")
-        print(f"   ESP32控制器存在: {self.esp32_controller is not None}")
-        print(f"   ESP32已連接: {esp32_connected}")
-        print(f"   當前模式: {'No-LLM' if self.startup_params.get('no_llm_mode', False) else 'Normal'}")
+        esp32_connected = not self.no_esp32_mode and self.esp32_controller and self.esp32_controller.is_connected
         
-        if not esp32_connected:
-            print("⚠️ ESP32 未連接，直接顯示字幕")
-            # 使用短延遲模擬 SSR 等待時間
-            QTimer.singleShot(500, self.on_caption_lighting_ready)
-        elif self.startup_params.get('no_llm_mode', False):
-            print("🔧 No-LLM 調試模式，使用短延遲顯示字幕")
+        if not esp32_connected or self.startup_params.get('no_llm_mode', False):
             QTimer.singleShot(500, self.on_caption_lighting_ready)
         else:
-            print("🔧 正常模式，等待SSR1信號")
-            print("   SSR1信號將在SSR控制器完成後發送")
-            if not esp32_connected:
-                print("⚠️ 正常模式下ESP32未連接，使用短延遲顯示字幕")
-                QTimer.singleShot(500, self.on_caption_lighting_ready)
-        
+            print("正常模式，等待SSR1信號")
+            
     def on_caption_lighting_ready(self):
         """SSR1燈光準備完成，現在可以顯示字幕"""
         print("=== SSR1 READY: Now displaying caption and screenshot ===")
         
         if not hasattr(self, 'pending_caption_response') or not self.pending_caption_response:
-            print("⚠️ 沒有待處理的字幕回應")
+            print("沒有待處理的字幕回應")
             return
             
         response = self.pending_caption_response
         
-        # 清除偵測框
+        # 🔥 清除偵測動畫但保留即時攝影機畫面作為背景
         self.detection_overlay.clear_detections()
+        # 不隱藏 camera_label，讓截圖淡入顯示在其上方
         
-        # 顯示截圖（淡入效果）
+        # 🔥 顯示截圖（取代即時攝影機畫面）- 使用淡入效果
         if self.current_screenshot_path and os.path.exists(self.current_screenshot_path):
+            print(f"📸 顯示截圖: {self.current_screenshot_path}")
+            print(f"   檔案大小: {os.path.getsize(self.current_screenshot_path)} bytes")
+            
             pixmap = QPixmap(self.current_screenshot_path)
-            self.screenshot_label.setPixmap(pixmap)
-            self.fade_in_widget(self.screenshot_label)
+            print(f"   QPixmap 載入狀態: isNull={pixmap.isNull()}, size={pixmap.width()}x{pixmap.height()}")
+            
+            if not pixmap.isNull():
+                self.screenshot_label.setPixmap(pixmap)
+                self.screenshot_label.raise_()  # 確保截圖在最上層
+                
+                # 🔧 清除任何樣式，保持純淨顯示
+                self.screenshot_label.setStyleSheet("")
+                
+                # 🔥 新增：使用淡入效果顯示截圖
+                screenshot_fade_duration = int(self.config.get('screenshot_fade_in', 1.0) * 1000)
+                print(f"📸 截圖將以 {screenshot_fade_duration}ms 淡入效果顯示")
+                self.fade_in_widget(self.screenshot_label, screenshot_fade_duration)
+                
+                print("📸 截圖設置完成（含淡入效果）")
+            else:
+                print("❌ QPixmap 載入失敗，圖片可能損壞")
+        else:
+            print(f"⚠️ 截圖檔案問題:")
+            print(f"   current_screenshot_path: {self.current_screenshot_path}")
+            print(f"   檔案存在: {os.path.exists(self.current_screenshot_path) if self.current_screenshot_path else 'N/A'}")
             
         # 解析回應
         if isinstance(response, dict):
             caption_tc = response.get('caption_tc', '')
-            caption_en = response.get('caption_en', '') or response.get('caption', '')  # 兼容兩種格式
+            caption_en = response.get('caption_en', '') or response.get('caption', '')
             weapons = response.get('weapons', [])
         else:
-            # No-LLM 模式
             caption_tc = response
             caption_en = response
             weapons = []
             
-        # 儲存武器列表
         self.current_weapons = weapons
         
-        # 從配置獲取打字速度
         typing_speed = self.config.get('caption_typing_speed', 50)
         
-        print(f" 準備顯示字幕:")
+        print(f"準備顯示字幕:")
         print(f"   中文: {caption_tc[:50]}..." if caption_tc else "   中文: (無)")
         print(f"   英文: {caption_en[:50]}..." if caption_en else "   英文: (無)")
         print(f"   打字速度: {typing_speed}ms/字")
         
-        # 顯示字幕
         if caption_tc or caption_en:
             # TTS 相關處理
             tts_enabled = self.startup_params.get('tts_enabled', False)
             no_llm_mode = self.startup_params.get('no_llm_mode', False)
             tts_skip_reason = ""
             
+            # 🔥 修復：機器人模式應該要有完整的TTS和字幕功能，不受no_llm_mode影響
+            robot_mode_override = getattr(self, 'robot_mode', False)
+            
             if not tts_enabled:
                 tts_skip_reason = "TTS已禁用"
-            elif no_llm_mode:
+            elif no_llm_mode and not robot_mode_override:
                 tts_skip_reason = "No-LLM模式"
             elif not caption_en:
                 tts_skip_reason = "無英文字幕"
                 
             # 配置字幕打字效果
-            if tts_enabled and not no_llm_mode and caption_en and hasattr(self, 'tts_service'):
+            # 🔥 機器人模式下即使no_llm_mode為True也要啟用TTS
+            should_enable_tts = tts_enabled and caption_en and hasattr(self, 'tts_service') and (not no_llm_mode or robot_mode_override)
+            if should_enable_tts:
                 # TTS模式：字幕與語音同步
-                print(" 啟用TTS同步字幕顯示")
+                print("啟用TTS同步字幕顯示")
                 self.caption_widget.enable_tts_sync(caption_en)
                 
                 # 估算TTS時長並設定超時保護
@@ -678,23 +975,29 @@ class MainWindow(QMainWindow):
                 effective_wpm = 140  # 有效WPM（考慮標點和停頓）
                 estimated_duration = len(words) / effective_wpm * 60 if effective_wpm > 0 else 10
                 timeout_duration = max(estimated_duration * 1.5, 8.0)  # 至少8秒，最多1.5倍預估時間
-                print(f" 設定TTS超時保護: {timeout_duration:.1f}秒")
+                print(f"設定TTS超時保護: {timeout_duration:.1f}秒")
                 
                 # 設定備用完成計時器
-                QTimer.singleShot(int(timeout_duration * 1000), self.on_tts_timeout_fallback)
+                self.tts_timeout_timer = QTimer()
+                self.tts_timeout_timer.setSingleShot(True)
+                self.tts_timeout_timer.timeout.connect(self.on_tts_timeout)
+                self.tts_timeout_timer.start(int(timeout_duration * 1000))
                 
                 # 啟動TTS
                 self.tts_service.speak_text(caption_en)
             else:
-                print(f" 跳過TTS播放: {tts_skip_reason}")
+                if robot_mode_override and no_llm_mode:
+                    print(f"機器人模式覆蓋: 原本會跳過TTS因為{tts_skip_reason}，但機器人模式需要TTS功能")
+                print(f"跳過TTS播放: {tts_skip_reason}")
                 self.tts_completed = True
             
             # 🔧 確保字幕元件可見並在最上層
             self.caption_widget.show()
             self.caption_widget.raise_()  # 確保字幕元件在最上層
 
-            self.caption_widget.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
-            self.caption_widget.raise_()
+            # 🔧 確保 debug 標籤始終在最上層
+            if hasattr(self, 'debug_label') and self.debug_label.isVisible():
+                self.debug_label.raise_()
 
             print(f"📺 字幕元件狀態:")
             print(f"   可見: {self.caption_widget.isVisible()}")
@@ -724,275 +1027,148 @@ class MainWindow(QMainWindow):
             self.caption_completed = True
             self.tts_completed = True  # 沒有TTS需要完成
             self.wait_timer_completed = True  # 沒有等待計時器需要完成
-            self.check_all_completed()
+            self.check_caption_completion()
             
         # 清除待處理的回應數據
         self.pending_caption_response = None
-    
-    def on_tts_started(self):
-        """TTS 開始朗讀"""
-        if self.startup_params['debug_mode']:
-            print("TTS: 開始語音朗讀")
-    
-    def on_tts_progress(self, current_pos, total_len):
-        """TTS進度更新 - 用於即時字幕同步"""
-        pass
-    
-    def on_tts_word_progress(self, current_chunk):
-        """TTS即時文字片段進度更新 - 提供精細同步"""
-        pass
-    
-    def on_tts_error(self, error_msg):
-        """TTS 錯誤處理"""
-        print(f"TTS Error: {error_msg}")
-        
-    def on_tc_typing_complete(self):
-        """TC字幕打字完成"""
-        print("TC typing complete")
-        
-    def on_en_typing_complete(self):
-        """EN字幕打字完成"""
-        print("EN typing complete")
-        
+            
     def on_caption_typing_complete(self):
         """字幕打字完成"""
-        print("All caption typing complete")
+        print("字幕打字完成")
         self.caption_completed = True
         
-        # 啟動等待計時器
+        # 啟動等待計時器（與舊版邏輯一致）
         wait_time = self.config.get('caption_wait_after', 2.0) * 1000
+        print(f"字幕打字完成，等待 {wait_time}ms 後繼續")
         QTimer.singleShot(int(wait_time), self.on_wait_timer_complete)
         
-    def on_tts_finished(self):
-        """TTS朗讀完成"""
-        print("TTS playback finished")
-        self.tts_completed = True
-        self.check_all_completed()
+        self.check_caption_completion()
         
-    def on_tts_timeout_fallback(self):
-        """TTS超時備用完成機制"""
+    def on_tc_typing_complete(self):
+        """中文字幕打字完成"""
+        print("中文字幕打字完成")
+        
+    def on_en_typing_complete(self):
+        """英文字幕打字完成"""
+        print("英文字幕打字完成")
+        
+    def check_caption_completion(self):
+        """檢查字幕是否完全完成"""
+        if self.caption_completed and self.tts_completed and self.wait_timer_completed:
+            print("所有字幕相關任務完成，通知狀態機")
+            self.state_machine.on_caption_complete()
+            
+    def on_tts_started(self):
+        """TTS開始播放"""
+        print("TTS開始播放")
+        self.tts_completed = False
+        
+    def on_tts_finished(self):
+        """TTS播放完成"""
+        print("TTS播放完成")
+        self.tts_completed = True
+        
+        if hasattr(self, 'tts_timeout_timer'):
+            self.tts_timeout_timer.stop()
+            
+        # TTS完成後直接檢查完成狀態，等待計時器已在打字完成時啟動
+        self.check_caption_completion()
+        
+    def on_wait_timer_complete(self):
+        """等待計時器完成"""
+        print("等待計時器完成")
+        self.wait_timer_completed = True
+        self.check_caption_completion()
+        
+    def on_tts_timeout(self):
+        """TTS超時處理"""
         if not self.tts_completed:
             print("⚠️ TTS超時，強制完成字幕狀態")
-            self.tts_completed = True
             
+            if hasattr(self, 'tts_service'):
+                self.tts_service.stop()
+                
             # 如果TTS同步還在進行，禁用它
             if hasattr(self.caption_widget, 'disable_tts_sync'):
                 self.caption_widget.disable_tts_sync()
                 
-            self.check_all_completed()
+            # 停止超時計時器
+            if hasattr(self, 'tts_timeout_timer'):
+                self.tts_timeout_timer.stop()
+                
+            self.tts_completed = True
+            self.check_caption_completion()
         
-    def on_wait_timer_complete(self):
-        """等待計時器完成"""
-        print("Caption wait timer complete")
-        self.wait_timer_completed = True
-        self.check_all_completed()
+    def on_tts_error(self, error):
+        """TTS錯誤處理"""
+        print(f"TTS錯誤: {error}")
+        self.on_tts_finished()
         
-    def check_all_completed(self):
-        """檢查是否所有字幕相關任務都完成"""
-        if (self.caption_completed and 
-            self.tts_completed and 
-            self.wait_timer_completed):
-            
-            self.state_machine.on_caption_complete()
-    
+    def on_tts_progress(self, progress):
+        """TTS播放進度"""
+        pass
+        
+    def on_tts_word_progress(self, word, index, total):
+        """TTS單詞進度"""
+        pass
+        
     def on_cal_window_fade_requested(self):
-        """Cal Window 消失請求處理"""
-        print("🎭 Cal Window 消失請求")
-        if hasattr(self, 'detection_overlay') and hasattr(self.detection_overlay, 'window_effect'):
+        """Cal Window消失請求"""
+        if hasattr(self.detection_overlay, 'window_effect'):
             self.detection_overlay.window_effect.start_fade_out()
             
     def on_detect_frame_fade_requested(self):
-        """Detect Frame 消失請求處理"""
-        print("🎭 Detect Frame 消失請求")
-        if hasattr(self, 'detection_overlay'):
-            self.detection_overlay.start_fade_out()
+        """Detect Frame消失請求"""
+        if hasattr(self.detection_overlay, 'frame_effect'):
+            self.detection_overlay.frame_effect.fade_out()
             
     def on_spotlight_requested(self):
         """聚光燈請求"""
+        print("Spotlight requested - starting SSR spotlight")
         self.ssr_controller.start_spotlight()
-        
+                
     def on_spotlight_ready(self):
         """聚光燈準備完成"""
         print("Spotlight ready")
-        # 這裡可以添加聚光燈效果的視覺回饋
-        # 直接進入下一個狀態 - 修復：使用正確的方法名
         if hasattr(self.state_machine, 'on_spotlight_ready'):
             self.state_machine.on_spotlight_ready()
-        else:
-            # 備用：直接進入武器顯示狀態
-            if hasattr(self, 'current_weapons'):
-                self.display_weapons(self.current_weapons)
-        
-    def display_weapons(self, weapon_ids):
-        """顯示武器"""
-        print(f"display_weapons() called with weapon_ids: {weapon_ids}")
-        
-        if not weapon_ids:
-            print("武器列表為空，直接完成")
-            self.state_machine.on_weapon_display_complete()
-            return
             
-        print(f" 開始顯示 {len(weapon_ids)} 個武器: {weapon_ids}")
-        
-        # 隱藏字幕和截圖
-        self.caption_widget.hide()
-        self.screenshot_label.hide()
-        
-        # 顯示黑屏遮罩
-        self.black_overlay.show()
-        
-        #  確保調試標籤始終在最上層
-        if hasattr(self, 'debug_label') and self.debug_label.isVisible():
-            self.debug_label.raise_()
-            
-        self.weapon_display_index = 0
-        self.current_weapons = weapon_ids
-        self.display_next_weapon()
-        
-    def display_next_weapon(self):
-        """顯示下一個武器"""
-        if self.weapon_display_index >= len(self.current_weapons):
-            # 所有武器顯示完成
-            self.black_overlay.hide()
-            
-            # 關閉所有SSR燈光
-            self.ssr_controller.stop_all_lighting()
-            
-            self.state_machine.on_weapon_display_complete()
-            return
-            
-        weapon_id = self.current_weapons[self.weapon_display_index]
-        weapon_info = self.weapon_config.get(weapon_id)
-        
-        print(f"Displaying weapon - ID: {weapon_id}, Index: {self.weapon_display_index}")
-        
-        if weapon_info:
-
-            
-            # 顯示武器圖片
-            self.show_weapon_image(weapon_info)
-            
-            # 控制 ESP32
-            if self.esp32_controller and weapon_info['pin']:
-                print(f"🔌 ESP32 Control: Pin {weapon_info['pin']} -> HIGH for {weapon_info['high_time']}ms")
-                self.esp32_controller.control_pin(
-                    weapon_info['pin'],
-                    weapon_info['wait_before'],
-                    weapon_info['high_time'],
-                    weapon_info['wait_after']
-                )
-            elif weapon_info['pin']:
-                print(f"ESP32 not connected, but would control Pin {weapon_info['pin']}")
-            else:
-                print(f"No ESP32 pin configured for weapon {weapon_id}")
-        else:
-            pass
-                
-        self.weapon_display_index += 1
-        
-        # 計算下一個武器的顯示時間
-        if weapon_info:
-            fade_in = weapon_info.get('image_fade_in', 1.0)
-            display = weapon_info.get('image_display', 3.0)
-            fade_out = weapon_info.get('image_fade_out', 1.0)
-            switch_delay = self.config.get('weapon_switch_delay', 0.5)
-            
-            total_time = (fade_in + display + fade_out + switch_delay) * 1000
-        else:
-            total_time = 2000
-            
-        QTimer.singleShot(int(total_time), self.display_next_weapon)
-        
     def show_weapon_image(self, weapon_info):
         """顯示武器圖片"""
         image_path = os.path.join("weapons_img", weapon_info['image_path'])
         
-        print(f"顯示武器圖片: {image_path}")
+        print(f"📷 準備顯示武器圖片: {image_path}")
+        print(f"   檔案存在: {os.path.exists(image_path)}")
         
         if os.path.exists(image_path):
             pixmap = QPixmap(image_path)
+            print(f"   QPixmap載入狀態: isNull={pixmap.isNull()}, size={pixmap.width()}x{pixmap.height()}")
             
-            if pixmap.isNull():
-                print(f"Error: Cannot load image {image_path}")
-                return
+            if not pixmap.isNull():
+                self.weapon_label.setPixmap(pixmap)
                 
-            print(f"成功載入圖片: {pixmap.width()}x{pixmap.height()}")
+                # 🔥 確保武器圖片顯示在最上層
+                self.weapon_label.raise_()
                 
-            # 縮放圖片
-            if pixmap.width() > self.window_width or pixmap.height() > self.window_height:
-                pixmap = pixmap.scaled(self.window_width, self.window_height, 
-                                     Qt.AspectRatioMode.KeepAspectRatio,
-                                     Qt.TransformationMode.SmoothTransformation)
-                print(f"🔧 圖片已縮放至: {pixmap.width()}x{pixmap.height()}")
-                                     
-            self.weapon_label.setPixmap(pixmap)
-            
-            # 🔧 關鍵修復：確保武器圖片顯示在黑屏遮罩之上
-            self.weapon_label.raise_()  # 將武器圖片提升到最頂層
-            self.weapon_label.show()
-            
-            # 🔥 確保調試標籤始終在最上層
-            if hasattr(self, 'debug_label') and self.debug_label.isVisible():
-                self.debug_label.raise_()
-            
-            # 淡入效果
-            fade_in_duration = int(weapon_info.get('image_fade_in', 1.0) * 1000)
-            print(f"🎬 開始淡入動畫: {fade_in_duration}ms")
-            self.fade_in_widget(self.weapon_label, fade_in_duration)
-            
-            # 設定淡出計時器
-            display_duration = weapon_info.get('image_display', 3.0)
-            fade_out_duration = int(weapon_info.get('image_fade_out', 1.0) * 1000)
-            total_display_time = int((display_duration + weapon_info.get('image_fade_in', 1.0)) * 1000)
-            
-            print(f"圖片顯示時間: 淡入{fade_in_duration}ms + 顯示{display_duration*1000}ms + 淡出{fade_out_duration}ms = 總計{total_display_time}ms")
-            
-            QTimer.singleShot(total_display_time, 
-                            lambda: self.fade_out_widget(self.weapon_label, fade_out_duration))
-        else:
-
-            print(f"當前工作目錄: {os.getcwd()}")
-            
-            # 列出weapons_img目錄的內容以幫助調試
-            weapons_dir = "weapons_img"
-            if os.path.exists(weapons_dir):
-                files = os.listdir(weapons_dir)
-                print(f"weapons_img目錄內容: {files}")
+                fade_in_duration = int(weapon_info.get('image_fade_in', 1.0) * 1000)
+                display_duration = int(weapon_info.get('image_display', 3.0) * 1000)
+                fade_out_duration = int(weapon_info.get('image_fade_out', 1.0) * 1000)
+                
+                self.fade_in_widget(self.weapon_label, fade_in_duration)
+                
+                total_display_time = fade_in_duration + display_duration
+                
+                print(f"武器圖片時序: 淡入{fade_in_duration}ms + 顯示{display_duration}ms + 淡出{fade_out_duration}ms = 總計{total_display_time}ms")
+                
+                QTimer.singleShot(total_display_time, 
+                                lambda: self.fade_out_widget(self.weapon_label, fade_out_duration))
             else:
-                print(f"weapons_img目錄不存在")
+                print(f"❌ QPixmap載入失敗，圖片可能損壞")
+        else:
+            print(f"❌ 找不到武器圖片: {image_path}")
+            print(f"   當前工作目錄: {os.getcwd()}")
+            print(f"   完整路徑: {os.path.abspath(image_path)}")
             
-    def reset_system(self):
-        """重置系統"""
-        print("System reset")
-        
-        # 隱藏所有覆蓋層
-        self.detection_overlay.clear_detections()
-        self.screenshot_label.hide()
-        self.caption_widget.hide()
-        self.weapon_label.hide()
-        self.black_overlay.hide()
-        
-        # 重置 cal windows fade 狀態
-        if hasattr(self.detection_overlay, 'window_effect'):
-            self.detection_overlay.window_effect.reset_fade_state()
-            print("🔄 重置 Cal Windows fade 狀態")
-        
-        # 清除狀態
-        self.current_screenshot_path = None
-        self.current_weapons = []
-        
-        # 重置狀態追蹤
-        self.caption_completed = False
-        self.tts_completed = True
-        self.wait_timer_completed = False
-        self.caption_displayed = False  # 重置防重複標記
-    
-        self.pending_caption_response = None
-        
-        # 確保所有SSR關閉
-        print("=== RESET: Ensuring all SSR are turned OFF ===")
-        self.ssr_controller.stop_all_lighting()
-        
     def fade_in_widget(self, widget, duration=None):
         """淡入效果"""
         if duration is None:
@@ -1035,98 +1211,16 @@ class MainWindow(QMainWindow):
         if self.startup_params['debug_mode']:
             self.update_debug_info()
             
-    def update_debug_info(self):
-        """更新 Debug 資訊"""
-        if hasattr(self, 'debug_label'):
-            detection_time = self.state_machine.get_detection_time()
-            esp32_status = "Connected" if self.esp32_controller and self.esp32_controller.is_connected else "Not connected"
-            llm_mode = "No LLM" if self.startup_params['no_llm_mode'] else "Normal"
-            mode = "Mini Mode" if self.startup_params.get('mini_mode', False) else "Full Mode"
-            
-            weapons_display = "None"
-            if hasattr(self, 'current_weapons') and self.current_weapons:
-                weapons_display = f"[{', '.join(self.current_weapons)}]"
-            
-            # SSR狀態
-            ssr_status = "Off"
-            if hasattr(self, 'ssr_controller'):
-                if self.state_machine.current_state in [SystemState.CAPTION, SystemState.SPOTLIGHT, SystemState.IMG_SHOW]:
-                    ssr_status = "Active"
-            
-            # ESP32連接狀態
-            esp32_connections = self.esp32_controller.get_esp32_connections() if self.esp32_controller else {}
-            esp32_status_lines = []
-            for esp_name, is_connected in esp32_connections.items():
-                status = "✓" if is_connected else "✗"
-                esp32_status_lines.append(f"ESP32 {esp_name}: {status}")
-            
-            # ESP32腳位狀態顯示
-            esp32_pin_lines = []
-            if self.esp32_controller:
-                all_pin_states = self.esp32_controller.get_esp32_pin_states()
-                
-                # ESP32 A (武器控制)
-                if 'A' in all_pin_states:
-                    pins_a = []
-                    for weapon_id, weapon_info in self.weapon_config.items():
-                        if weapon_info['pin']:
-                            # 從映射找到對應的ESP32腳位
-                            arduino_pin = weapon_info['pin']
-                            if arduino_pin in range(2, 12):  # 武器腳位範圍
-                                esp_pin_map = {2:4, 3:5, 4:12, 5:13, 6:14, 7:16, 8:17, 9:18, 10:19, 11:21}
-                                if arduino_pin in esp_pin_map:
-                                    esp_pin = esp_pin_map[arduino_pin]
-                                    state = all_pin_states['A'].get(esp_pin, 'LOW')
-                                    pins_a.append(f"{weapon_info['name']}(D{arduino_pin}/G{esp_pin}):{state}")
-                    if pins_a:
-                        esp32_pin_lines.append("ESP32 A 武器:")
-                        esp32_pin_lines.extend([f"  {p}" for p in pins_a])
-                
-                # ESP32 B (SSR控制)
-                if 'B' in all_pin_states:
-                    esp32_pin_lines.append("ESP32 B SSR:")
-                    
-                    # SSR1 腳位狀態
-                    ssr1_pins = [4, 5, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23]
-                    ssr1_states = []
-                    for pin in ssr1_pins:
-                        state = all_pin_states['B'].get(pin, 'LOW')
-                        ssr1_states.append(f"G{pin}:{state}")
-                    
-                    # SSR1腳位狀態分組顯示
-                    for i in range(0, len(ssr1_states), 4):
-                        esp32_pin_lines.append(f"  SSR1: {' '.join(ssr1_states[i:i+4])}")
-                    
-                    # SSR2 腳位狀態
-                    ssr2_state = all_pin_states['B'].get(25, 'LOW')
-                    esp32_pin_lines.append(f"  SSR2(G25):{ssr2_state}")
-
-
-
-
-                # ESP32 C (安裝控制)
-                if 'C' in all_pin_states:
-                    install_state = all_pin_states['C'].get(4, 'LOW')
-                    esp32_pin_lines.append("ESP32 C :")
-                    esp32_pin_lines.append(f"  Installation (G4):{install_state}")
-            
-            debug_text = f"""State: {self.state_machine.current_state.value}
-FPS: {self.current_fps}
-Detection Time: {detection_time:.1f}s
-Controller: ESP32
-SSR: {ssr_status}
-LLM Mode: {llm_mode}
-Display: {mode}
-Weapons: {weapons_display}
-Window: {self.window_width}x{self.window_height}
-
-=== ESP32 連接狀態 ===
-""" + "\n".join(esp32_status_lines) + "\n\n=== ESP32 腳位狀態 ===\n" + "\n".join(esp32_pin_lines)
-            
-            self.debug_label.setText(debug_text)
-
-            self.debug_label.raise_()
-            
+    def start_system(self):
+        """啟動系統"""
+        self.state_machine.set_no_llm_mode(self.startup_params['no_llm_mode'])
+        
+        camera_index = self.startup_params.get('camera_index', 0)
+        self.camera_manager.start(camera_index)
+        
+        self.first_frame_received = False
+        self.state_machine.start()
+        
     def closeEvent(self, event):
         """關閉事件"""
         self.state_machine.stop()
@@ -1136,13 +1230,15 @@ Window: {self.window_width}x{self.window_height}
         if self.esp32_controller:
             self.esp32_controller.disconnect()
         
-        # 關閉SSR控制器
         if hasattr(self, 'ssr_controller'):
             self.ssr_controller.cleanup()
         
-        # 關閉TTS服務
         if hasattr(self, 'tts_service'):
             print("Shutting down TTS service...")
             self.tts_service.shutdown()
             
+        if hasattr(self, 'osc_controller'):
+            self.osc_controller.stop()
+            
         event.accept()
+

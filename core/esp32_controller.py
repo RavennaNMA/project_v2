@@ -6,7 +6,6 @@ import time
 import threading
 from PyQt6.QtCore import QThread, QObject, pyqtSignal
 
-
 class ESP32Config:
     """ESP32配置"""
     def __init__(self):
@@ -31,6 +30,7 @@ class ESP32Config:
                 'port': 8080,
                 'pins': [4],
                 'name': 'Installation',
+
                 'timeout': 5
             }
         }
