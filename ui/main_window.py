@@ -338,13 +338,17 @@ class MainWindow(QMainWindow):
                                      interpolation=cv2.INTER_LINEAR)  # 已經是最快的品質插值
 
         try:
-            detection_result = self.face_detector.process_frame(frame)
+            # 🔧 修復：在裁切後的畫面上進行人臉檢測，而不是原始完整畫面
+            detection_result = self.face_detector.process_frame(cropped_frame)
             current_state = self.state_machine.current_state
             
             faces = []
             if detection_result:
-                # 調整偵測結果座標
-                adjusted_bbox = self.adjust_detection_coordinates_fast(detection_result, frame.shape, target_width, target_height)
+                # 由於現在在裁切後的畫面上檢測，座標已經是正確的
+                # 只需要進行最終的縮放調整
+                adjusted_bbox = self.adjust_detection_coordinates_for_cropped_frame(
+                    detection_result, cropped_frame.shape, target_width, target_height)
+                
                 if adjusted_bbox:
                     self.last_detection_bbox = adjusted_bbox
                     
@@ -425,7 +429,7 @@ class MainWindow(QMainWindow):
         return portrait_frame
         
     def adjust_detection_coordinates_fast(self, detection_result, original_shape, display_width, display_height):
-        """ FPS 優化：快速版本的偵測座標調整"""
+        """ FPS 優化：快速版本的偵測座標調整（用於原始完整畫面）"""
         # 安全檢查
         if not detection_result or not isinstance(detection_result, dict):
             return None
@@ -466,6 +470,54 @@ class MainWindow(QMainWindow):
             'y': final_y * final_scale_y,
             'width': adjusted_width * final_scale_x,
             'height': final_height * final_scale_y,
+            'confidence': detection_result.get('confidence', 0)
+        }
+        
+        return final_result
+        
+    def adjust_detection_coordinates_for_cropped_frame(self, detection_result, cropped_shape, display_width, display_height):
+        """🔧 新增：專門處理裁切後畫面的座標調整"""
+        # 安全檢查
+        if not detection_result or not isinstance(detection_result, dict):
+            return None
+            
+        # 檢查必要的鍵是否存在
+        if not all(key in detection_result for key in ['x', 'y', 'width', 'height']):
+            return None
+        
+        # 裁切後的畫面尺寸（通常是1080x1920）
+        cropped_height, cropped_width = cropped_shape[:2]
+        
+        # 檢查偵測框是否在裁切畫面範圍內
+        face_left = detection_result['x']
+        face_right = detection_result['x'] + detection_result['width']
+        face_top = detection_result['y']
+        face_bottom = detection_result['y'] + detection_result['height']
+        
+        # 如果人臉完全在畫面外，返回None
+        if (face_right < 0 or face_left > cropped_width or 
+            face_bottom < 0 or face_top > cropped_height):
+            return None
+        
+        # 裁剪偵測框到畫面範圍內
+        adjusted_x = max(0, min(face_left, cropped_width))
+        adjusted_y = max(0, min(face_top, cropped_height))
+        adjusted_width = min(detection_result['width'], cropped_width - adjusted_x)
+        adjusted_height = min(detection_result['height'], cropped_height - adjusted_y)
+        
+        # 如果調整後的尺寸太小，忽略這個檢測
+        if adjusted_width < 10 or adjusted_height < 10:
+            return None
+        
+        # 最終縮放到顯示尺寸
+        scale_x = display_width / cropped_width
+        scale_y = display_height / cropped_height
+        
+        final_result = {
+            'x': adjusted_x * scale_x,
+            'y': adjusted_y * scale_y,
+            'width': adjusted_width * scale_x,
+            'height': adjusted_height * scale_y,
             'confidence': detection_result.get('confidence', 0)
         }
         

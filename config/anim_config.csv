@@ -66,4 +66,34 @@ VISUAL,color_r,255,紅色分量(0-255)
 VISUAL,color_g,255,綠色分量(0-255)
 VISUAL,color_b,255,藍色分量(0-255)
 VISUAL,alpha,200,整體透明度(0-255)
-VISUAL,flicker_probability,0.15,閃爍機率(0.0-1.0) 
+VISUAL,flicker_probability,0.1,閃爍機率(0.0-1.0)
+
+# 位置控制
+POSITION,min_window_distance,120,窗口之間最小距離(像素)
+POSITION,quadrant_spread,0.35,象限擴散比例(0.0-1.0)
+POSITION,random_offset_ratio,0.05,隨機偏移比例(0.0-1.0)
+POSITION,point_smooth_factor,0.1,點位置平滑因子(0.0-1.0)
+POSITION,min_radius,200,最小生成半徑(像素)
+POSITION,max_radius,350,最大生成半徑(像素)
+
+# 動畫控制
+ANIMATION,content_animation_speed,0.1,內容動畫速度(0.0-1.0)
+
+# 基本設定
+BASIC,min_life,200,窗口最小生命值(幀)
+BASIC,max_life,400,窗口最大生命值(幀)
+BASIC,window_alpha,180,窗口透明度(0-255)
+BASIC,window_smooth_factor,0.15,窗口位置平滑因子(0.0-1.0)
+BASIC,spawn_point_smooth_factor,0.12,生成點平滑因子(0.0-1.0)
+BASIC,connection_alpha,120,連接線透明度(0-255)
+BASIC,stable_connection_lines,True,使用穩定連接線
+BASIC,line_smooth_factor,0.8,連接線平滑因子(0.0-1.0)
+BASIC,spawn_rate,0.1,生成機率(0.0-1.0)
+BASIC,max_windows_per_face,4,每個臉部最大窗口數
+BASIC,spawn_delay_frames,30,生成延遲幀數
+
+# 視覺設定
+VISUAL,window_width_base,160,窗口基礎寬度(像素)
+VISUAL,window_height_base,100,窗口基礎高度(像素)
+VISUAL,size_multiplier_min,0.9,尺寸倍數最小值
+VISUAL,size_multiplier_max,1.1,尺寸倍數最大值 

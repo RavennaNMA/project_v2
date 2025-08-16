@@ -39,7 +39,7 @@ FPS = 60
 # ===== 動畫速度配置 =====
 # 使用與Processing相同的時間係數
 ANIMATION_SPEED_MULTIPLIER = 1.0   # 全域動畫速度倍數
-CONTENT_ANIMATION_SPEED = 0.1      # 內容動畫基礎速度 (對應Processing的frameCount*0.1)
+CONTENT_ANIMATION_SPEED = 0.001      # 內容動畫基礎速度 (對應Processing的frameCount*0.001)
 TIME_SCALE = 0.1                   # 時間縮放係數 (對應Processing的frameCount*0.1)
 
 # 全域frame_count變數
@@ -609,7 +609,7 @@ class CalWindow:
     
     def draw_level_indicators(self, painter):
         # 等級指示器，使用與Processing相同的時間係數
-        temp_value = pde_noise(self.i + 13, frame_count * 0.1)  # 對應Processing的frameCount*0.1
+        temp_value = pde_noise(self.i + 13, frame_count * 0.001)  # 對應Processing的frameCount*0.001
         temp_value = temp_value * 15 - 1
         
         # 垂直等級條
@@ -635,10 +635,10 @@ class CalWindow:
         
         # 圓形圖案，使用與Processing相同的時間係數
         temp_values = [
-            pde_noise(self.i + 113, frame_count * 0.1),  # 對應Processing的frameCount*0.1
-            pde_noise(self.i + 114, frame_count * 0.1),
-            pde_noise(self.i + 115, frame_count * 0.1),
-            pde_noise(self.i + 116, frame_count * 0.1)
+            pde_noise(self.i + 113, frame_count * 0.001),  # 對應Processing的frameCount*0.001
+            pde_noise(self.i + 114, frame_count * 0.001),
+            pde_noise(self.i + 115, frame_count * 0.001),
+            pde_noise(self.i + 116, frame_count * 0.001)
         ]
         
         # 左側圓形
@@ -662,7 +662,7 @@ class CalWindow:
         # 進度條，使用與Processing相同的時間係數
         painter.setBrush(QBrush())
         for i in range(4):
-            temp_value = pde_noise(i + 1, frame_count * 0.1)  # 對應Processing的frameCount*0.1
+            temp_value = pde_noise(i + 1, frame_count * 0.001)  # 對應Processing的frameCount*0.001
             bar_y = int(-self.height * (0.25 - 0.15 * i))
             bar_h = int(self.height * 0.1)
             
@@ -680,7 +680,7 @@ class CalWindow:
         painter.setBrush(QBrush())
         for i in range(16):
             bar_x = -70 + i * 9
-            noise_val = pde_noise(i, frame_count * 0.1)  # 對應Processing的frameCount*0.1
+            noise_val = pde_noise(i, frame_count * 0.001)  # 對應Processing的frameCount*0.001
             
             # 向上的線
             painter.drawLine(bar_x, 5, bar_x, int(5 - 35 * noise_val))
@@ -690,9 +690,9 @@ class CalWindow:
     def draw_orbital_pattern(self, painter):
         # 軌道圖案，使用與Processing相同的時間係數
         temp_values = [
-            pde_noise(self.i + 215, frame_count * 0.1),  # 對應Processing的frameCount*0.1
-            pde_noise(self.i + 216, frame_count * 0.1),
-            pde_noise(self.i + 217, frame_count * 0.1)
+            pde_noise(self.i + 215, frame_count * 0.001),  # 對應Processing的frameCount*0.001
+            pde_noise(self.i + 216, frame_count * 0.001),
+            pde_noise(self.i + 217, frame_count * 0.001)
         ]
         
         center_x = int(-self.width * 0.15)
@@ -729,9 +729,9 @@ class CalWindow:
     def draw_stacked_bars(self, painter):
         # 堆疊條形圖，使用與Processing相同的時間係數
         temp_values = [
-            pde_noise(self.i + 215, frame_count * 0.1),  # 對應Processing的frameCount*0.1
-            pde_noise(self.i + 216, frame_count * 0.1),
-            pde_noise(self.i + 217, frame_count * 0.1)
+            pde_noise(self.i + 215, frame_count * 0.001),  # 對應Processing的frameCount*0.001
+            pde_noise(self.i + 216, frame_count * 0.001),
+            pde_noise(self.i + 217, frame_count * 0.001)
         ]
         
         # 水平網格線

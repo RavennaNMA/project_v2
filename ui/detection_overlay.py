@@ -12,7 +12,7 @@ from .cal_windows_effect import ImprovedDetectionWindowEffect, update_global_fra
 
 # 全域frame_count變數
 frame_count = 0
-CONTENT_ANIMATION_SPEED = 0.1
+CONTENT_ANIMATION_SPEED = 0.001
 
 class VisualRect:
     """視覺矩形動畫類 - 完全基於參考代碼實現"""
@@ -149,12 +149,14 @@ class VisualRect:
 
     def draw(self, frame):
         """繪製邏輯 - 使用配置檔案的閃爍參數"""
-        #  使用配置檔案的閃爍機率
-        flicker_probability = self.config.get_float('VISUAL', 'flicker_probability', 0.2)
-        show = random.random() > flicker_probability
-        
-        # 保存閃爍狀態供窗口效果使用
-        self.is_flickering = not show
+        # 🔧 修復：使用預先計算的閃爍狀態，確保與窗口效果同步
+        if hasattr(self, 'is_flickering'):
+            show = not self.is_flickering
+        else:
+            # 如果沒有預先計算，則使用原有邏輯
+            flicker_probability = self.config.get_float('VISUAL', 'flicker_probability', 0.2)
+            show = random.random() > flicker_probability
+            self.is_flickering = not show
         
         if show and (self.state in [1, 2, 3, 4]):
             # 使用設定檔中的顏色 (BGR格式)
@@ -340,8 +342,14 @@ class DetectionOverlay(QWidget):
         if self.cal_windows_enabled:
             self.window_effect.update_faces(faces, face_states)
             
-            # 同步閃爍狀態
+            # 🔧 修復：先計算所有檢測框的閃爍狀態，然後同步到窗口
             for i, rect in enumerate(self.visual_rects):
+                # 預先計算閃爍狀態（模擬 draw 方法中的邏輯）
+                flicker_probability = self.anim_config.get_float('VISUAL', 'flicker_probability', 0.2)
+                show = random.random() > flicker_probability
+                rect.is_flickering = not show
+                
+                # 同步閃爍狀態到窗口效果
                 if hasattr(rect, 'is_flickering'):
                     self.window_effect.set_flicker_state_for_face(i, rect.is_flickering)
                 if i in self.window_effect.windows_by_face:

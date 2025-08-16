@@ -56,7 +56,7 @@ class ImprovedCalWindow:
 
         # 從配置獲取動畫速度（重新載入配置以確保最新設定）
         self.config.reload_config()
-        self.content_animation_speed = self.config.get_float('ANIMATION', 'content_animation_speed', 0.1)
+        self.content_animation_speed = self.config.get_float('ANIMATION', 'content_animation_speed', 0.001)
         print(f"Cal Window 動畫速度設定: {self.content_animation_speed}")
 
         self.position_fixed = False
@@ -143,12 +143,26 @@ class ImprovedCalWindow:
         frame_size = self.face_size * 1.3
         frame_half_size = frame_size * 0.5
         
-        # 定義四個象限的偏移比例
+        # 從配置獲取象限擴散比例
+        quadrant_spread = self.config.get_float('POSITION', 'quadrant_spread', 0.35)
+        
+        # 定義八個點的偏移比例（每個象限2個點）
         quadrant_offsets = [
-            (-0.35, -0.35),  # 左上
-            (0.35, -0.35),   # 右上
-            (0.35, 0.35),    # 右下
-            (-0.35, 0.35)    # 左下
+            # 左上象限 - 2個點
+            (-quadrant_spread * 0.7, -quadrant_spread * 0.7),  # 內圈
+            (-quadrant_spread * 1.3, -quadrant_spread * 1.3),  # 外圈
+            
+            # 右上象限 - 2個點
+            (quadrant_spread * 0.7, -quadrant_spread * 0.7),   # 內圈
+            (quadrant_spread * 1.3, -quadrant_spread * 1.3),   # 外圈
+            
+            # 右下象限 - 2個點
+            (quadrant_spread * 0.7, quadrant_spread * 0.7),    # 內圈
+            (quadrant_spread * 1.3, quadrant_spread * 1.3),    # 外圈
+            
+            # 左下象限 - 2個點
+            (-quadrant_spread * 0.7, quadrant_spread * 0.7),   # 內圈
+            (-quadrant_spread * 1.3, quadrant_spread * 1.3),   # 外圈
         ]
         
         if 0 <= self.point_index < len(quadrant_offsets):
@@ -195,24 +209,90 @@ class ImprovedCalWindow:
         else:
             self.mode = 0
             
+        # 🎯 簡化：移除生命週期閃爍，只保留跟隨檢測框的閃爍
         if self.force_flicker:
+            # 跟隨檢測框閃爍
             self.display = False
             self.alpha = 0.0
-        elif self.mode == 3:
-            self.display = (self.life % 2 == 0)
-            self.alpha = 1.0
-        elif self.mode == 2:
+        else:
+            # 正常顯示（不閃爍）
             self.display = True
             self.alpha = 1.0
-        elif self.mode == 1:
-            self.display = (self.life % 2 == 0)
-            self.alpha = 1.0
-        else:
-            self.display = False
-            self.alpha = 0.0
             
         return self.life > 0
     
+    def _calculate_window_edge_intersection(self, line_start_x, line_start_y):
+        """計算連接線與窗口邊緣的交點"""
+        # 窗口邊界
+        window_left = self.x - self.width / 2
+        window_right = self.x + self.width / 2
+        window_top = self.y - self.height / 2
+        window_bottom = self.y + self.height / 2
+        
+        # 連接線起點（生成點）
+        x1, y1 = line_start_x, line_start_y
+        # 連接線終點（窗口中心）
+        x2, y2 = self.x, self.y
+        
+        # 計算方向向量
+        dx = x2 - x1
+        dy = y2 - y1
+        
+        # 如果線段太短，直接返回窗口中心
+        if abs(dx) < 1 and abs(dy) < 1:
+            return self.x, self.y
+        
+        # 計算與各邊界的交點
+        intersections = []
+        
+        # 與左邊界的交點
+        if dx != 0:
+            t_left = (window_left - x1) / dx
+            if 0 <= t_left <= 1:
+                y_intersect = y1 + t_left * dy
+                if window_top <= y_intersect <= window_bottom:
+                    intersections.append((window_left, y_intersect))
+        
+        # 與右邊界的交點
+        if dx != 0:
+            t_right = (window_right - x1) / dx
+            if 0 <= t_right <= 1:
+                y_intersect = y1 + t_right * dy
+                if window_top <= y_intersect <= window_bottom:
+                    intersections.append((window_right, y_intersect))
+        
+        # 與上邊界的交點
+        if dy != 0:
+            t_top = (window_top - y1) / dy
+            if 0 <= t_top <= 1:
+                x_intersect = x1 + t_top * dx
+                if window_left <= x_intersect <= window_right:
+                    intersections.append((x_intersect, window_top))
+        
+        # 與下邊界的交點
+        if dy != 0:
+            t_bottom = (window_bottom - y1) / dy
+            if 0 <= t_bottom <= 1:
+                x_intersect = x1 + t_bottom * dx
+                if window_left <= x_intersect <= window_right:
+                    intersections.append((x_intersect, window_bottom))
+        
+        # 選擇最近的交點
+        if intersections:
+            min_distance = float('inf')
+            best_intersection = None
+            
+            for ix, iy in intersections:
+                distance = math.sqrt((ix - x1)**2 + (iy - y1)**2)
+                if distance < min_distance:
+                    min_distance = distance
+                    best_intersection = (ix, iy)
+            
+            return best_intersection
+        
+        # 如果沒有找到交點，返回窗口中心
+        return self.x, self.y
+
     def draw_on_cv_frame(self, frame, color_bgr=(255, 255, 255)):
         if self.detection_state < 3:
             return
@@ -236,16 +316,26 @@ class ImprovedCalWindow:
             line_start_x = int(self.spawn_center_x)
             line_start_y = int(self.spawn_center_y)
         
+        # 根據配置決定連接線的起點
+        connect_to_edge = self.config.get_bool('BASIC', 'connect_to_window_edge', True)
+        if connect_to_edge:
+            # 計算連接線與窗口邊緣的交點
+            edge_x, edge_y = self._calculate_window_edge_intersection(line_start_x, line_start_y)
+            line_end_x, line_end_y = edge_x, edge_y
+        else:
+            # 使用窗口中心作為連接線起點
+            line_end_x, line_end_y = self.x, self.y
+        
         # 添加平滑連接線效果
         line_smooth_factor = self.config.get_float('BASIC', 'line_smooth_factor', 0.8)
         
         # 計算連接線的中間點，使線條更平滑
-        mid_x = int(self.x + (line_start_x - self.x) * line_smooth_factor)
-        mid_y = int(self.y + (line_start_y - self.y) * line_smooth_factor)
+        mid_x = int(line_end_x + (line_start_x - line_end_x) * line_smooth_factor)
+        mid_y = int(line_end_y + (line_start_y - line_end_y) * line_smooth_factor)
         
         # 繪製平滑的連接線（兩段線）
         cv2.line(frame, 
-                (int(self.x), int(self.y)), 
+                (int(line_end_x), int(line_end_y)), 
                 (mid_x, mid_y), 
                 connection_color, 1)
         cv2.line(frame, 
@@ -310,25 +400,34 @@ class ImprovedCalWindow:
     
     def draw_bar_chart_cv(self, frame, cx, cy, color, current_frame):
         # 模擬 Processing 版本的 Window 1: 柱狀圖
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         for i in range(16):
             # 使用與舊版本相同的 noise 計算
             noise_val = pde_noise(i, current_frame * self.content_animation_speed)
-            # 模擬 rect(-70+i*9, 40, 6, -70*noise(i, frameCount*0.1))
-            bar_x = int(cx - 70 + i * 9)
-            bar_y = int(cy + 40)
-            bar_height = int(70 * noise_val)
+            # 根據窗口大小縮放繪製範圍
+            bar_x = int(cx - 70 * scale_x + i * 9 * scale_x)
+            bar_y = int(cy + 40 * scale_y)
+            bar_height = int(70 * noise_val * scale_y)
+            bar_width = int(6 * scale_x)
             # 注意：Processing 的 rect 高度是負值，所以我們向上繪製
-            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + 6, bar_y - bar_height), color, -1)
+            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y - bar_height), color, -1)
     
     def draw_line_chart_cv(self, frame, cx, cy, color, current_frame):
         # 模擬 Processing 版本的 Window 2: 線圖 + 圓點
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         points = []
         
         # 計算所有點的位置
         for i in range(16):
-            px = int(cx - 67.5 + i * 9)
+            px = int(cx - 67.5 * scale_x + i * 9 * scale_x)
             noise_val = pde_noise(i, current_frame * self.content_animation_speed)
-            py = int(cy + 40 - 70 * noise_val)
+            py = int(cy + 40 * scale_y - 70 * noise_val * scale_y)
             points.append((px, py))
         
         # 繪製連接線 (模擬 line() 函數)
@@ -341,25 +440,29 @@ class ImprovedCalWindow:
     
     def draw_curve_chart_cv(self, frame, cx, cy, color, current_frame):
         # 模擬 Processing 版本的 Window 3: 曲線圖 + 垂直線
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         points = []
         
         # 計算所有點的位置
         for i in range(16):
-            px = int(cx - 67.5 + i * 9)
+            px = int(cx - 67.5 * scale_x + i * 9 * scale_x)
             noise_val = pde_noise(i, current_frame * self.content_animation_speed)
-            py = int(cy + 40 - 70 * noise_val)
+            py = int(cy + 40 * scale_y - 70 * noise_val * scale_y)
             points.append((px, py))
         
         # 模擬 beginShape() 和 curveVertex()
         # 添加起始點 (curveVertex(-67.5, 40))
-        curve_points = [(int(cx - 67.5), int(cy + 40))]
+        curve_points = [(int(cx - 67.5 * scale_x), int(cy + 40 * scale_y))]
         
         # 添加所有數據點
         for px, py in points:
             curve_points.append((px, py))
         
         # 添加結束點 (curveVertex(76.5, 40))
-        curve_points.append((int(cx + 76.5), int(cy + 40)))
+        curve_points.append((int(cx + 76.5 * scale_x), int(cy + 40 * scale_y)))
         
         # 繪製曲線 (使用多邊形近似)
         if len(curve_points) > 2:
@@ -367,42 +470,47 @@ class ImprovedCalWindow:
             cv2.polylines(frame, [curve_array], False, color, 1)
         
         # 繪製底部水平線 (line(-67.5, 8, 76.5, 8))
-        cv2.line(frame, (int(cx - 67.5), int(cy + 8)), (int(cx + 76.5), int(cy + 8)), color, 1)
+        cv2.line(frame, (int(cx - 67.5 * scale_x), int(cy + 8 * scale_y)), 
+                (int(cx + 76.5 * scale_x), int(cy + 8 * scale_y)), color, 1)
         
         # 繪製垂直線 (line(-67.5+i*9, 8, -67.5+i*9, 40-70*noise(i, frameCount*0.1)))
         for i in range(16):
-            px = int(cx - 67.5 + i * 9)
+            px = int(cx - 67.5 * scale_x + i * 9 * scale_x)
             noise_val = pde_noise(i, current_frame * self.content_animation_speed)
-            py = int(cy + 40 - 70 * noise_val)
-            cv2.line(frame, (px, int(cy + 8)), (px, py), color, 1)
+            py = int(cy + 40 * scale_y - 70 * noise_val * scale_y)
+            cv2.line(frame, (px, int(cy + 8 * scale_y)), (px, py), color, 1)
     
     def draw_matrix_display_cv(self, frame, cx, cy, color, current_frame):
         # 使用與舊版本相同的邏輯：noFill() 和 stroke()
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         for i in range(9):
             for j in range(3):
                 # 使用與舊版本相同的 noise 計算
                 noise_val = pde_noise(i, j, current_frame * self.content_animation_speed)
                 text_val = int(noise_val * 10)
                 body_val = int(noise_val * 20)
-                px = int(cx - 62.5 + i * 15)
-                py = int(cy - 25 + j * 20)
-                self.draw_shaba_text_cv(frame, text_val, body_val, px, py, color)
+                px = int(cx - 62.5 * scale_x + i * 15 * scale_x)
+                py = int(cy - 25 * scale_y + j * 20 * scale_y)
+                self.draw_shaba_text_cv(frame, text_val, body_val, px, py, color, scale_x, scale_y)
     
-    def draw_shaba_text_cv(self, frame, tag_point, tag_body, px, py, color):
+    def draw_shaba_text_cv(self, frame, tag_point, tag_body, px, py, color, scale_x=1.0, scale_y=1.0):
         # 模擬 Processing 的 noFill() - 不填充矩形
         # 模擬 Processing 的 stroke() - 只畫邊框
         
         # 處理 Tag_Point (矩形部分)
         if tag_point == 1:
             # rect(0, 0, 2, 2) - 只畫邊框，不填充
-            cv2.rectangle(frame, (px, py), (px + 2, py + 2), color, 1)
+            cv2.rectangle(frame, (px, py), (px + int(2 * scale_x), py + int(2 * scale_y)), color, 1)
         elif tag_point == 2:
             # rect(6, 0, 2, 2) - 只畫邊框，不填充
-            cv2.rectangle(frame, (px + 6, py), (px + 8, py + 2), color, 1)
+            cv2.rectangle(frame, (px + int(6 * scale_x), py), (px + int(8 * scale_x), py + int(2 * scale_y)), color, 1)
         elif tag_point == 3:
             # rect(0, 0, 2, 2) + rect(6, 0, 2, 2) - 只畫邊框，不填充
-            cv2.rectangle(frame, (px, py), (px + 2, py + 2), color, 1)
-            cv2.rectangle(frame, (px + 6, py), (px + 8, py + 2), color, 1)
+            cv2.rectangle(frame, (px, py), (px + int(2 * scale_x), py + int(2 * scale_y)), color, 1)
+            cv2.rectangle(frame, (px + int(6 * scale_x), py), (px + int(8 * scale_x), py + int(2 * scale_y)), color, 1)
         
         # 處理 Tag_Body (線條部分) - 模擬 beginShape() 和 endShape(CLOSE)
         tag_body = tag_body % 8
@@ -413,59 +521,59 @@ class ImprovedCalWindow:
         if tag_body == 0:
             # 創建封閉的多邊形
             points = np.array([
-                [px + 1, py + 5],   # 起點
-                [px + 1, py + 11],  # 向下
-                [px + 7, py + 11],  # 向右
-                [px + 7, py + 5]    # 向上，回到起點
+                [px + int(1 * scale_x), py + int(5 * scale_y)],   # 起點
+                [px + int(1 * scale_x), py + int(11 * scale_y)],  # 向下
+                [px + int(7 * scale_x), py + int(11 * scale_y)],  # 向右
+                [px + int(7 * scale_x), py + int(5 * scale_y)]    # 向上，回到起點
             ], np.int32)
         elif tag_body == 1:
             points = np.array([
-                [px + 1, py + 5],   # 起點
-                [px + 7, py + 5],   # 向右
-                [px + 1, py + 5],   # 回到左邊
-                [px + 1, py + 11],  # 向下
-                [px + 7, py + 11]   # 向右
+                [px + int(1 * scale_x), py + int(5 * scale_y)],   # 起點
+                [px + int(7 * scale_x), py + int(5 * scale_y)],   # 向右
+                [px + int(1 * scale_x), py + int(5 * scale_y)],   # 回到左邊
+                [px + int(1 * scale_x), py + int(11 * scale_y)],  # 向下
+                [px + int(7 * scale_x), py + int(11 * scale_y)]   # 向右
             ], np.int32)
         elif tag_body == 2:
             points = np.array([
-                [px + 1, py + 5],   # 起點
-                [px + 7, py + 5],   # 向右
-                [px + 1, py + 5],   # 回到左邊
-                [px + 1, py + 11],  # 向下
-                [px + 7, py + 5]    # 對角線到右上
+                [px + int(1 * scale_x), py + int(5 * scale_y)],   # 起點
+                [px + int(7 * scale_x), py + int(5 * scale_y)],   # 向右
+                [px + int(1 * scale_x), py + int(5 * scale_y)],   # 回到左邊
+                [px + int(1 * scale_x), py + int(11 * scale_y)],  # 向下
+                [px + int(7 * scale_x), py + int(5 * scale_y)]    # 對角線到右上
             ], np.int32)
         elif tag_body == 3:
             points = np.array([
-                [px + 1, py + 5],   # 起點
-                [px + 7, py + 5],   # 向右
-                [px + 1, py + 11],  # 對角線到左下
-                [px + 7, py + 11],  # 向右
-                [px + 7, py + 5]    # 向上
+                [px + int(1 * scale_x), py + int(5 * scale_y)],   # 起點
+                [px + int(7 * scale_x), py + int(5 * scale_y)],   # 向右
+                [px + int(1 * scale_x), py + int(11 * scale_y)],  # 對角線到左下
+                [px + int(7 * scale_x), py + int(11 * scale_y)],  # 向右
+                [px + int(7 * scale_x), py + int(5 * scale_y)]    # 向上
             ], np.int32)
         elif tag_body == 4:
             points = np.array([
-                [px + 1, py + 5],   # 起點
-                [px + 7, py + 5],   # 向右
-                [px + 1, py + 5],   # 回到左邊
-                [px + 1, py + 11]   # 向下
+                [px + int(1 * scale_x), py + int(5 * scale_y)],   # 起點
+                [px + int(7 * scale_x), py + int(5 * scale_y)],   # 向右
+                [px + int(1 * scale_x), py + int(5 * scale_y)],   # 回到左邊
+                [px + int(1 * scale_x), py + int(11 * scale_y)]   # 向下
             ], np.int32)
         elif tag_body == 5:
             points = np.array([
-                [px + 1, py + 5],   # 起點
-                [px + 1, py + 11],  # 向下
-                [px + 7, py + 11]   # 向右
+                [px + int(1 * scale_x), py + int(5 * scale_y)],   # 起點
+                [px + int(1 * scale_x), py + int(11 * scale_y)],  # 向下
+                [px + int(7 * scale_x), py + int(11 * scale_y)]   # 向右
             ], np.int32)
         elif tag_body == 6:
             points = np.array([
-                [px + 1, py + 11],  # 起點
-                [px + 7, py + 11],  # 向右
-                [px + 7, py + 5]    # 向上
+                [px + int(1 * scale_x), py + int(11 * scale_y)],  # 起點
+                [px + int(7 * scale_x), py + int(11 * scale_y)],  # 向右
+                [px + int(7 * scale_x), py + int(5 * scale_y)]    # 向上
             ], np.int32)
         elif tag_body == 7:
             points = np.array([
-                [px + 1, py + 5],   # 起點
-                [px + 7, py + 5],   # 向右
-                [px + 7, py + 11]   # 向下
+                [px + int(1 * scale_x), py + int(5 * scale_y)],   # 起點
+                [px + int(7 * scale_x), py + int(5 * scale_y)],   # 向右
+                [px + int(7 * scale_x), py + int(11 * scale_y)]   # 向下
             ], np.int32)
         
         # 繪製封閉的多邊形（模擬 endShape(CLOSE)）
@@ -474,6 +582,10 @@ class ImprovedCalWindow:
     
     def draw_geometric_pattern_cv(self, frame, cx, cy, color, current_frame):
         # 模擬 Processing 版本的 8 個幾何形狀
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         for j in range(8):
             # 使用與舊版本相同的 noise 檢查
             fill_noise = pde_noise(self.i + j, current_frame * self.content_animation_speed)
@@ -487,66 +599,66 @@ class ImprovedCalWindow:
                 # 模擬 noFill() - 不填充
                 fill_color = None
             
-            # 根據舊版本的 8 個形狀創建對應的點陣列
+            # 根據舊版本的 8 個形狀創建對應的點陣列，並應用縮放
             if j == 0:
                 # 第一個形狀：三角形
                 points = np.array([
                     [cx, cy],           # vertex(0, 0)
-                    [cx - 20, cy - 30], # vertex(-20, -30)
-                    [cx + 20, cy - 30]  # vertex(20, -30)
+                    [cx - int(20 * scale_x), cy - int(30 * scale_y)], # vertex(-20, -30)
+                    [cx + int(20 * scale_x), cy - int(30 * scale_y)]  # vertex(20, -30)
                 ], np.int32)
             elif j == 1:
                 # 第二個形狀：四邊形
                 points = np.array([
-                    [cx + 10, cy - 3],  # vertex(10, -3)
-                    [cx + 30, cy - 30], # vertex(30, -30)
-                    [cx + 65, cy - 30], # vertex(65, -30)
-                    [cx + 65, cy - 20]  # vertex(65, -20)
+                    [cx + int(10 * scale_x), cy - int(3 * scale_y)],  # vertex(10, -3)
+                    [cx + int(30 * scale_x), cy - int(30 * scale_y)], # vertex(30, -30)
+                    [cx + int(65 * scale_x), cy - int(30 * scale_y)], # vertex(65, -30)
+                    [cx + int(65 * scale_x), cy - int(20 * scale_y)]  # vertex(65, -20)
                 ], np.int32)
             elif j == 2:
                 # 第三個形狀：三角形
                 points = np.array([
-                    [cx + 10, cy + 5],  # vertex(10, 5)
-                    [cx + 65, cy - 10], # vertex(65, -10)
-                    [cx + 65, cy + 10]  # vertex(65, 10)
+                    [cx + int(10 * scale_x), cy + int(5 * scale_y)],  # vertex(10, 5)
+                    [cx + int(65 * scale_x), cy - int(10 * scale_y)], # vertex(65, -10)
+                    [cx + int(65 * scale_x), cy + int(10 * scale_y)]  # vertex(65, 10)
                 ], np.int32)
             elif j == 3:
                 # 第四個形狀：四邊形
                 points = np.array([
-                    [cx + 10, cy + 13], # vertex(10, 13)
-                    [cx + 65, cy + 20], # vertex(65, 20)
-                    [cx + 65, cy + 35], # vertex(65, 35)
-                    [cx + 30, cy + 35]  # vertex(30, 35)
+                    [cx + int(10 * scale_x), cy + int(13 * scale_y)], # vertex(10, 13)
+                    [cx + int(65 * scale_x), cy + int(20 * scale_y)], # vertex(65, 20)
+                    [cx + int(65 * scale_x), cy + int(35 * scale_y)], # vertex(65, 35)
+                    [cx + int(30 * scale_x), cy + int(35 * scale_y)]  # vertex(30, 35)
                 ], np.int32)
             elif j == 4:
                 # 第五個形狀：三角形
                 points = np.array([
-                    [cx, cy + 10],      # vertex(0, 10)
-                    [cx + 20, cy + 35], # vertex(20, 35)
-                    [cx - 20, cy + 35]  # vertex(-20, 35)
+                    [cx, cy + int(10 * scale_y)],      # vertex(0, 10)
+                    [cx + int(20 * scale_x), cy + int(35 * scale_y)], # vertex(20, 35)
+                    [cx - int(20 * scale_x), cy + int(35 * scale_y)]  # vertex(-20, 35)
                 ], np.int32)
             elif j == 5:
                 # 第六個形狀：四邊形
                 points = np.array([
-                    [cx - 10, cy + 13], # vertex(-10, 13)
-                    [cx - 30, cy + 35], # vertex(-30, 35)
-                    [cx - 65, cy + 35], # vertex(-65, 35)
-                    [cx - 65, cy + 20]  # vertex(-65, 20)
+                    [cx - int(10 * scale_x), cy + int(13 * scale_y)], # vertex(-10, 13)
+                    [cx - int(30 * scale_x), cy + int(35 * scale_y)], # vertex(-30, 35)
+                    [cx - int(65 * scale_x), cy + int(35 * scale_y)], # vertex(-65, 35)
+                    [cx - int(65 * scale_x), cy + int(20 * scale_y)]  # vertex(-65, 20)
                 ], np.int32)
             elif j == 6:
                 # 第七個形狀：三角形
                 points = np.array([
-                    [cx - 10, cy + 5],  # vertex(-10, 5)
-                    [cx - 65, cy + 10], # vertex(-65, 10)
-                    [cx - 65, cy - 10]  # vertex(-65, -10)
+                    [cx - int(10 * scale_x), cy + int(5 * scale_y)],  # vertex(-10, 5)
+                    [cx - int(65 * scale_x), cy + int(10 * scale_y)], # vertex(-65, 10)
+                    [cx - int(65 * scale_x), cy - int(10 * scale_y)]  # vertex(-65, -10)
                 ], np.int32)
             else:  # j == 7
                 # 第八個形狀：四邊形
                 points = np.array([
-                    [cx - 10, cy - 3],  # vertex(-10, -3)
-                    [cx - 65, cy - 20], # vertex(-65, -20)
-                    [cx - 65, cy - 30], # vertex(-65, -30)
-                    [cx - 30, cy - 30]  # vertex(-30, -30)
+                    [cx - int(10 * scale_x), cy - int(3 * scale_y)],  # vertex(-10, -3)
+                    [cx - int(65 * scale_x), cy - int(20 * scale_y)], # vertex(-65, -20)
+                    [cx - int(65 * scale_x), cy - int(30 * scale_y)], # vertex(-65, -30)
+                    [cx - int(30 * scale_x), cy - int(30 * scale_y)]  # vertex(-30, -30)
                 ], np.int32)
             
             # 模擬 Processing 的 beginShape() 和 endShape(CLOSE)
@@ -561,7 +673,7 @@ class ImprovedCalWindow:
         for i in range(16):
             for j in range(3):
                 # 使用與舊版本相同的 noise 計算
-                temp_value = pde_noise((j * 16 + i), current_frame * 0.01)
+                temp_value = pde_noise((j * 16 + i), current_frame * self.content_animation_speed)
                 
                 # 計算矩形位置和大小，模擬舊版本的計算方式
                 # rect(-Window_Width*0.4+Window_Width*0.05*i, -Window_Height*0.3+Window_Height*0.23*j, Window_Width*0.05, Window_Height*0.2)
@@ -588,34 +700,46 @@ class ImprovedCalWindow:
                     pass
     
     def draw_oscilloscope_cv(self, frame, cx, cy, color, current_frame):
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         for i in range(4):
-            temp_value = pde_noise(i + 2, current_frame * 0.01)
-            line_y = int(cy - 15 + i * 15)
-            cv2.line(frame, (int(cx - 64), line_y), (int(cx + 64), line_y), color, 1)
+            temp_value = pde_noise(i + 2, current_frame * self.content_animation_speed)
+            line_y = int(cy - 15 * scale_y + i * 15 * scale_y)
+            cv2.line(frame, (int(cx - 64 * scale_x), line_y), (int(cx + 64 * scale_x), line_y), color, 1)
             
-            dot_x = int(cx - 64 + temp_value * 128)
+            dot_x = int(cx - 64 * scale_x + temp_value * 128 * scale_x)
             cv2.circle(frame, (dot_x, line_y), 2, color, -1)
     
     def draw_radar_pattern_cv(self, frame, cx, cy, color, current_frame):
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         cv2.circle(frame, (cx, cy), 5, color, -1)
-        cv2.line(frame, (int(cx - 64), cy), (int(cx + 64), cy), color, 1)
+        cv2.line(frame, (int(cx - 64 * scale_x), cy), (int(cx + 64 * scale_x), cy), color, 1)
         
         for i in range(6):
-            temp_value = pde_noise(i + 8, current_frame * 0.02)
-            radius = 10 + i * 5
+            temp_value = pde_noise(i + 8, current_frame * self.content_animation_speed)
+            radius = int((10 + i * 5) * min(scale_x, scale_y))
             start_angle = int(360 * temp_value)
             span_angle = 30 + i * 8
             
             cv2.ellipse(frame, (cx, cy), (radius, radius), 0, start_angle, start_angle + span_angle, color, 1)
     
     def draw_complex_shapes_cv(self, frame, cx, cy, color, current_frame):
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         cv2.circle(frame, (cx, cy), 5, color, -1)
         
         for i in range(6):
-            temp_value = pde_noise(i * 1.5 + 9, current_frame * 0.03)
+            temp_value = pde_noise(i * 1.5 + 9, current_frame * self.content_animation_speed)
             rotation = 360 * temp_value
             
-            fill_noise = pde_noise(i + 108, current_frame * 0.07)
+            fill_noise = pde_noise(i + 108, current_frame * self.content_animation_speed)
             if fill_noise > 0.5:
                 fill_alpha = int(100 * self.alpha)
                 fill_color = tuple(int(c * fill_alpha / 255) for c in (255, 255, 255))
@@ -625,14 +749,14 @@ class ImprovedCalWindow:
             points = []
             for j in range(i*2+8):
                 angle_rad = math.radians(j * 7 + rotation)
-                x1 = cx + i*2*3 * math.cos(angle_rad)
-                y1 = cy + i*2*3 * math.sin(angle_rad)
+                x1 = cx + i*2*3 * math.cos(angle_rad) * min(scale_x, scale_y)
+                y1 = cy + i*2*3 * math.sin(angle_rad) * min(scale_x, scale_y)
                 points.append([int(x1), int(y1)])
             
             for j in range(i*2+7, -1, -1):
                 angle_rad = math.radians(j * 7 + rotation)
-                x2 = cx + (i*2+1)*3 * math.cos(angle_rad)
-                y2 = cy + (i*2+1)*3 * math.sin(angle_rad)
+                x2 = cx + (i*2+1)*3 * math.cos(angle_rad) * min(scale_x, scale_y)
+                y2 = cy + (i*2+1)*3 * math.sin(angle_rad) * min(scale_x, scale_y)
                 points.append([int(x2), int(y2)])
             
             if points:
@@ -642,16 +766,20 @@ class ImprovedCalWindow:
                 cv2.polylines(frame, [points_array], True, color, 1)
     
     def draw_crosshair_pattern_cv(self, frame, cx, cy, color, current_frame):
-        temp_x1 = pde_noise(self.i + 110, current_frame * 0.013)
-        temp_y1 = pde_noise(self.i + 111, current_frame * 0.012)
-        temp_x2 = pde_noise(self.i + 112, current_frame * 0.014)
-        temp_y2 = pde_noise(self.i + 113, current_frame * 0.015)
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
+        temp_x1 = pde_noise(self.i + 110, current_frame * self.content_animation_speed)
+        temp_y1 = pde_noise(self.i + 111, current_frame * self.content_animation_speed)
+        temp_x2 = pde_noise(self.i + 112, current_frame * self.content_animation_speed)
+        temp_y2 = pde_noise(self.i + 113, current_frame * self.content_animation_speed)
         
         # 第一組十字準星線 (TempX1, TempY1)
-        line_y1 = int(cy + temp_y1 * 90 - 45)
-        line_x1 = int(cx + temp_x1 * 160 - 80)
-        cv2.line(frame, (int(cx - 72), line_y1), (int(cx + 72), line_y1), color, 1)
-        cv2.line(frame, (line_x1, int(cy - 35)), (line_x1, int(cy + 40)), color, 1)
+        line_y1 = int(cy + temp_y1 * 90 * scale_y - 45 * scale_y)
+        line_x1 = int(cx + temp_x1 * 160 * scale_x - 80 * scale_x)
+        cv2.line(frame, (int(cx - 72 * scale_x), line_y1), (int(cx + 72 * scale_x), line_y1), color, 1)
+        cv2.line(frame, (line_x1, int(cy - 35 * scale_y)), (line_x1, int(cy + 40 * scale_y)), color, 1)
         
         # 第一組標記線 (灰色，100, 100*Enter_Light)
         mark_alpha = int(100 * self.alpha)
@@ -659,54 +787,58 @@ class ImprovedCalWindow:
         
         # 水平標記線
         for offset_x in [0.02, 0.05, -0.02, -0.05]:
-            start_x = int(cx - 80 + (temp_x1 + offset_x) * 160)
-            end_x = int(cx - 80 + (temp_x1 + (offset_x + 0.03 if offset_x > 0 else offset_x - 0.03)) * 160)
-            mark_y = int(cy + (temp_y1 - 0.03) * 90 - 45)
+            start_x = int(cx - 80 * scale_x + (temp_x1 + offset_x) * 160 * scale_x)
+            end_x = int(cx - 80 * scale_x + (temp_x1 + (offset_x + 0.03 if offset_x > 0 else offset_x - 0.03)) * 160 * scale_x)
+            mark_y = int(cy + (temp_y1 - 0.03) * 90 * scale_y - 45 * scale_y)
             cv2.line(frame, (start_x, mark_y), (end_x, mark_y), mark_color, 1)
             
-            mark_y = int(cy + (temp_y1 + 0.03) * 90 - 45)
+            mark_y = int(cy + (temp_y1 + 0.03) * 90 * scale_y - 45 * scale_y)
             cv2.line(frame, (start_x, mark_y), (end_x, mark_y), mark_color, 1)
         
         # 垂直標記線
         for offset_x in [0.02, -0.02]:
-            mark_x = int(cx - 80 + (temp_x1 + offset_x) * 160)
-            start_y = int(cy + (temp_y1 - 0.03) * 90 - 45)
-            end_y = int(cy + (temp_y1 - 0.07) * 90 - 45)
+            mark_x = int(cx - 80 * scale_x + (temp_x1 + offset_x) * 160 * scale_x)
+            start_y = int(cy + (temp_y1 - 0.03) * 90 * scale_y - 45 * scale_y)
+            end_y = int(cy + (temp_y1 - 0.07) * 90 * scale_y - 45 * scale_y)
             cv2.line(frame, (mark_x, start_y), (mark_x, end_y), mark_color, 1)
             
-            start_y = int(cy + (temp_y1 + 0.03) * 90 - 45)
-            end_y = int(cy + (temp_y1 + 0.07) * 90 - 45)
+            start_y = int(cy + (temp_y1 + 0.03) * 90 * scale_y - 45 * scale_y)
+            end_y = int(cy + (temp_y1 + 0.07) * 90 * scale_y - 45 * scale_y)
             cv2.line(frame, (mark_x, start_y), (mark_x, end_y), mark_color, 1)
         
         # 第二組十字準星線 (TempX2, TempY2)
-        line_y2 = int(cy + temp_y2 * 90 - 45)
-        line_x2 = int(cx + temp_x2 * 160 - 80)
-        cv2.line(frame, (int(cx - 72), line_y2), (int(cx + 72), line_y2), color, 1)
-        cv2.line(frame, (line_x2, int(cy - 35)), (line_x2, int(cy + 40)), color, 1)
+        line_y2 = int(cy + temp_y2 * 90 * scale_y - 45 * scale_y)
+        line_x2 = int(cx + temp_x2 * 160 * scale_x - 80 * scale_x)
+        cv2.line(frame, (int(cx - 72 * scale_x), line_y2), (int(cx + 72 * scale_x), line_y2), color, 1)
+        cv2.line(frame, (line_x2, int(cy - 35 * scale_y)), (line_x2, int(cy + 40 * scale_y)), color, 1)
         
         # 第二組標記線 (灰色，100, 100*Enter_Light)
         # 水平標記線
         for offset_x in [0.02, 0.05, -0.02, -0.05]:
-            start_x = int(cx - 80 + (temp_x2 + offset_x) * 160)
-            end_x = int(cx - 80 + (temp_x2 + (offset_x + 0.03 if offset_x > 0 else offset_x - 0.03)) * 160)
-            mark_y = int(cy + (temp_y2 - 0.03) * 90 - 45)
+            start_x = int(cx - 80 * scale_x + (temp_x2 + offset_x) * 160 * scale_x)
+            end_x = int(cx - 80 * scale_x + (temp_x2 + (offset_x + 0.03 if offset_x > 0 else offset_x - 0.03)) * 160 * scale_x)
+            mark_y = int(cy + (temp_y2 - 0.03) * 90 * scale_y - 45 * scale_y)
             cv2.line(frame, (start_x, mark_y), (end_x, mark_y), mark_color, 1)
             
-            mark_y = int(cy + (temp_y2 + 0.03) * 90 - 45)
+            mark_y = int(cy + (temp_y2 + 0.03) * 90 * scale_y - 45 * scale_y)
             cv2.line(frame, (start_x, mark_y), (end_x, mark_y), mark_color, 1)
         
         # 垂直標記線
         for offset_x in [0.02, -0.02]:
-            mark_x = int(cx - 80 + (temp_x2 + offset_x) * 160)
-            start_y = int(cy + (temp_y2 - 0.03) * 90 - 45)
-            end_y = int(cy + (temp_y2 - 0.07) * 90 - 45)
+            mark_x = int(cx - 80 * scale_x + (temp_x2 + offset_x) * 160 * scale_x)
+            start_y = int(cy + (temp_y2 - 0.03) * 90 * scale_y - 45 * scale_y)
+            end_y = int(cy + (temp_y2 - 0.07) * 90 * scale_y - 45 * scale_y)
             cv2.line(frame, (mark_x, start_y), (mark_x, end_y), mark_color, 1)
             
-            start_y = int(cy + (temp_y2 + 0.03) * 90 - 45)
-            end_y = int(cy + (temp_y2 + 0.07) * 90 - 45)
+            start_y = int(cy + (temp_y2 + 0.03) * 90 * scale_y - 45 * scale_y)
+            end_y = int(cy + (temp_y2 + 0.07) * 90 * scale_y - 45 * scale_y)
             cv2.line(frame, (mark_x, start_y), (mark_x, end_y), mark_color, 1)
     
     def draw_diamond_shapes_cv(self, frame, cx, cy, color, current_frame):
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         shapes = [
             [(0, -30), (16, 2.5), (0, 35), (-16, 2.5)],
             [(16, -30), (32, -30), (48, -5), (32, -5)],
@@ -720,8 +852,8 @@ class ImprovedCalWindow:
         ]
         
         for i, shape_points in enumerate(shapes):
-            fill_noise = pde_noise(self.i + 111 + i, current_frame * 0.021)
-            points = np.array([[cx + x, cy + y] for x, y in shape_points], np.int32)
+            fill_noise = pde_noise(self.i + 111 + i, current_frame * self.content_animation_speed)
+            points = np.array([[cx + int(x * scale_x), cy + int(y * scale_y)] for x, y in shape_points], np.int32)
             
             if fill_noise > 0.5:
                 fill_alpha = int(100 * self.alpha)
@@ -730,58 +862,70 @@ class ImprovedCalWindow:
             cv2.polylines(frame, [points], True, color, 1)
     
     def draw_level_indicators_cv(self, frame, cx, cy, color, current_frame):
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         temp_value = pde_noise(self.i + 13, current_frame * self.content_animation_speed) * 15 - 1
         
         for i in range(13):
             if i <= temp_value:
                 fill_alpha = int(100 * self.alpha)
                 fill_color = tuple(int(c * fill_alpha / 255) for c in (255, 255, 255))
-                bar_y = int(cy + 35 - 5 * i)
-                bar_h = 5
-                cv2.rectangle(frame, (int(cx - 8), bar_y - bar_h), 
-                             (int(cx + 8), bar_y), fill_color, -1)
+                bar_y = int(cy + 35 * scale_y - 5 * i * scale_y)
+                bar_h = int(5 * scale_y)
+                cv2.rectangle(frame, (int(cx - 8 * scale_x), bar_y - bar_h), 
+                             (int(cx + 8 * scale_x), bar_y), fill_color, -1)
             else:
-                bar_y = int(cy + 35 - 5 * i)
-                bar_h = 5
-                cv2.rectangle(frame, (int(cx - 8), bar_y - bar_h), 
-                             (int(cx + 8), bar_y), color, 1)
+                bar_y = int(cy + 35 * scale_y - 5 * i * scale_y)
+                bar_h = int(5 * scale_y)
+                cv2.rectangle(frame, (int(cx - 8 * scale_x), bar_y - bar_h), 
+                             (int(cx + 8 * scale_x), bar_y), color, 1)
         
         for i in range(0, 13, 2):
-            mark_y = int(cy + 35 - 5 * i)
-            cv2.circle(frame, (int(cx - 16), mark_y), 2, color, -1)
-            cv2.circle(frame, (int(cx + 16), mark_y), 2, color, -1)
+            mark_y = int(cy + 35 * scale_y - 5 * i * scale_y)
+            cv2.circle(frame, (int(cx - 16 * scale_x), mark_y), 2, color, -1)
+            cv2.circle(frame, (int(cx + 16 * scale_x), mark_y), 2, color, -1)
     
     def draw_progress_bars_cv(self, frame, cx, cy, color, current_frame):
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         for i in range(4):
             temp_value = pde_noise(i + 1, current_frame * self.content_animation_speed)
-            bar_y = int(cy - 25 + 15 * i)
-            bar_h = 10
+            bar_y = int(cy - 25 * scale_y + 15 * i * scale_y)
+            bar_h = int(10 * scale_y)
             
-            filled_width = int(temp_value * 128) - 2
-            cv2.rectangle(frame, (int(cx - 64), bar_y), 
-                         (int(cx - 64) + filled_width, bar_y + bar_h), color, -1)
+            filled_width = int(temp_value * 128 * scale_x) - 2
+            cv2.rectangle(frame, (int(cx - 64 * scale_x), bar_y), 
+                         (int(cx - 64 * scale_x) + filled_width, bar_y + bar_h), color, -1)
             
-            empty_start = int(cx - 64) + filled_width + 3
-            empty_width = 128 - filled_width - 3
+            empty_start = int(cx - 64 * scale_x) + filled_width + 3
+            empty_width = int(128 * scale_x) - filled_width - 3
             cv2.rectangle(frame, (empty_start, bar_y), (empty_start + empty_width, bar_y + bar_h), color, 1)
     
     def draw_vertical_oscilloscope_cv(self, frame, cx, cy, color, current_frame):
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         for i in range(16):
-            bar_x = int(cx - 70 + i * 9)
+            bar_x = int(cx - 70 * scale_x + i * 9 * scale_x)
             noise_val = pde_noise(i, current_frame * self.content_animation_speed)
             
-            cv2.line(frame, (bar_x, int(cy + 5)), 
-                     (bar_x, int(cy + 5 - 35 * noise_val)), color, 1)
-            cv2.line(frame, (bar_x, int(cy + 5)), 
-                     (bar_x, int(cy + 5 + 35 * noise_val)), color, 1)
+            cv2.line(frame, (bar_x, int(cy + 5 * scale_y)), 
+                     (bar_x, int(cy + 5 * scale_y - 35 * noise_val * scale_y)), color, 1)
+            cv2.line(frame, (bar_x, int(cy + 5 * scale_y)), 
+                     (bar_x, int(cy + 5 * scale_y + 35 * noise_val * scale_y)), color, 1)
     
     def draw_orbital_pattern_cv(self, frame, cx, cy, color, current_frame):
         # 模擬 Processing 版本的 Window 10: 十字準星模式
         # 計算兩個不同的 noise 值對
-        temp_value_x1 = pde_noise(self.i + 110, current_frame * 0.013)
-        temp_value_y1 = pde_noise(self.i + 111, current_frame * 0.012)
-        temp_value_x2 = pde_noise(self.i + 112, current_frame * 0.014)
-        temp_value_y2 = pde_noise(self.i + 113, current_frame * 0.015)
+        temp_value_x1 = pde_noise(self.i + 110, current_frame * self.content_animation_speed)
+        temp_value_y1 = pde_noise(self.i + 111, current_frame * self.content_animation_speed)
+        temp_value_x2 = pde_noise(self.i + 112, current_frame * self.content_animation_speed)
+        temp_value_y2 = pde_noise(self.i + 113, current_frame * self.content_animation_speed)
         
         # 計算窗口尺寸
         window_width = self.width
@@ -798,36 +942,9 @@ class ImprovedCalWindow:
         # 垂直線
         x1_pos = temp_value_x1 * window_width - window_width * 0.5
         cv2.line(frame, 
-                 (int(cx + x1_pos), int(cy - window_height * 0.35)), 
-                 (int(cx + x1_pos), int(cy + window_height * 0.4)), 
+                 (int(cx + x1_pos), int(cy - window_height * 0.45)), 
+                 (int(cx + x1_pos), int(cy + window_height * 0.45)), 
                  color, 1)
-        
-        # 第一組十字準星的輔助線 (灰色)
-        gray_color = tuple(int(c * 0.4) for c in color)  # 模擬 stroke(100, 100*Enter_Light)
-        
-        # 水平輔助線
-        for offset_x in [0.02, -0.02]:
-            for offset_y in [0.03, -0.03]:
-                x_start = x1_pos + offset_x * window_width
-                x_end = x1_pos + (offset_x + 0.03) * window_width
-                y_pos = y1_pos + offset_y * window_height * 0.9
-                
-                cv2.line(frame, 
-                         (int(cx + x_start), int(cy + y_pos)), 
-                         (int(cx + x_end), int(cy + y_pos)), 
-                         gray_color, 1)
-        
-        # 垂直輔助線
-        for offset_x in [0.02, -0.02]:
-            for offset_y in [0.03, -0.03]:
-                x_pos = x1_pos + offset_x * window_width
-                y_start = y1_pos + offset_y * window_height * 0.9
-                y_end = y1_pos + (offset_y + 0.04) * window_height * 0.9
-                
-                cv2.line(frame, 
-                         (int(cx + x_pos), int(cy + y_start)), 
-                         (int(cx + x_pos), int(cy + y_end)), 
-                         gray_color, 1)
         
         # 第二組十字準星 (TempX2, TempY2)
         # 水平線
@@ -840,34 +957,15 @@ class ImprovedCalWindow:
         # 垂直線
         x2_pos = temp_value_x2 * window_width - window_width * 0.5
         cv2.line(frame, 
-                 (int(cx + x2_pos), int(cy - window_height * 0.35)), 
-                 (int(cx + x2_pos), int(cy + window_height * 0.4)), 
+                 (int(cx + x2_pos), int(cy - window_height * 0.45)), 
+                 (int(cx + x2_pos), int(cy + window_height * 0.45)), 
                  color, 1)
-        
-        # 第二組十字準星的輔助線 (灰色)
-        for offset_x in [0.02, -0.02]:
-            for offset_y in [0.03, -0.03]:
-                x_start = x2_pos + offset_x * window_width
-                x_end = x2_pos + (offset_x + 0.03) * window_width
-                y_pos = y2_pos + offset_y * window_height * 0.9
-                
-                cv2.line(frame, 
-                         (int(cx + x_start), int(cy + y_pos)), 
-                         (int(cx + x_end), int(cy + y_pos)), 
-                         gray_color, 1)
-        
-        for offset_x in [0.02, -0.02]:
-            for offset_y in [0.03, -0.03]:
-                x_pos = x2_pos + offset_x * window_width
-                y_start = y2_pos + offset_y * window_height * 0.9
-                y_end = y2_pos + (offset_y + 0.04) * window_height * 0.9
-                
-                cv2.line(frame, 
-                         (int(cx + x_pos), int(cy + y_start)), 
-                         (int(cx + x_pos), int(cy + y_end)), 
-                         gray_color, 1)
     
     def draw_stacked_bars_cv(self, frame, cx, cy, color, current_frame):
+        # 根據窗口實際大小計算縮放比例
+        scale_x = self.width / 160.0
+        scale_y = self.height / 100.0
+        
         temp_values = [
             pde_noise(self.i + 215, current_frame * self.content_animation_speed),
             pde_noise(self.i + 216, current_frame * self.content_animation_speed),
@@ -875,24 +973,24 @@ class ImprovedCalWindow:
         ]
         
         for i in range(14):
-            line_y = int(cy - 30 + i * 5)
-            cv2.line(frame, (int(cx - 64), line_y), 
-                     (int(cx + 64), line_y), color, 1)
+            line_y = int(cy - 30 * scale_y + i * 5 * scale_y)
+            cv2.line(frame, (int(cx - 64 * scale_x), line_y), 
+                     (int(cx + 64 * scale_x), line_y), color, 1)
         
         fill_alpha = int(100 * self.alpha)
         fill_color = tuple(int(c * fill_alpha / 255) for c in (255, 255, 255))
         
-        bar_height = int(temp_values[0] * 90)
-        cv2.rectangle(frame, (int(cx - 40), int(cy + 40)), 
-                     (int(cx - 24), int(cy + 40) - bar_height), fill_color, -1)
+        bar_height = int(temp_values[0] * 90 * scale_y)
+        cv2.rectangle(frame, (int(cx - 40 * scale_x), int(cy + 40 * scale_y)), 
+                     (int(cx - 24 * scale_x), int(cy + 40 * scale_y) - bar_height), fill_color, -1)
         
-        bar_height = int(temp_values[1] * 90)
-        cv2.rectangle(frame, (int(cx - 8), int(cy + 40)), 
-                     (int(cx + 8), int(cy + 40) - bar_height), fill_color, -1)
+        bar_height = int(temp_values[1] * 90 * scale_y)
+        cv2.rectangle(frame, (int(cx - 8 * scale_x), int(cy + 40 * scale_y)), 
+                     (int(cx + 8 * scale_x), int(cy + 40 * scale_y) - bar_height), fill_color, -1)
         
-        bar_height = int(temp_values[2] * 90)
-        cv2.rectangle(frame, (int(cx + 24), int(cy + 40)), 
-                     (int(cx + 40), int(cy + 40) - bar_height), fill_color, -1) 
+        bar_height = int(temp_values[2] * 90 * scale_y)
+        cv2.rectangle(frame, (int(cx + 24 * scale_x), int(cy + 40 * scale_y)), 
+                     (int(cx + 40 * scale_x), int(cy + 40 * scale_y) - bar_height), fill_color, -1)
 
 # 改進的窗口效果管理器
 class ImprovedDetectionWindowEffect:
@@ -1021,12 +1119,23 @@ class ImprovedDetectionWindowEffect:
         quadrant_spread = self.config.get_float('POSITION', 'quadrant_spread', 0.35)
         random_offset_ratio = self.config.get_float('POSITION', 'random_offset_ratio', 0.05)
         
-        # 定義四個象限的偏移比例
+        # 定義八個點的偏移比例（每個象限2個點）
         quadrant_offsets = [
-            (-quadrant_spread, -quadrant_spread),  # 左上
-            (quadrant_spread, -quadrant_spread),   # 右上
-            (quadrant_spread, quadrant_spread),    # 右下
-            (-quadrant_spread, quadrant_spread)    # 左下
+            # 左上象限 - 2個點
+            (-quadrant_spread * 0.7, -quadrant_spread * 0.7),  # 內圈
+            (-quadrant_spread * 1.3, -quadrant_spread * 1.3),  # 外圈
+            
+            # 右上象限 - 2個點
+            (quadrant_spread * 0.7, -quadrant_spread * 0.7),   # 內圈
+            (quadrant_spread * 1.3, -quadrant_spread * 1.3),   # 外圈
+            
+            # 右下象限 - 2個點
+            (quadrant_spread * 0.7, quadrant_spread * 0.7),    # 內圈
+            (quadrant_spread * 1.3, quadrant_spread * 1.3),    # 外圈
+            
+            # 左下象限 - 2個點
+            (-quadrant_spread * 0.7, quadrant_spread * 0.7),   # 內圈
+            (-quadrant_spread * 1.3, quadrant_spread * 1.3),   # 外圈
         ]
         
         # 如果這是第一次生成點，直接設置位置
@@ -1102,22 +1211,67 @@ class ImprovedDetectionWindowEffect:
             # 如果沒有可用的點，重新生成
             self.generate_center_points_for_face(face_id, center_x, center_y, face_size)
             self.used_points_by_face[face_id] = []
-            available_points = list(range(4))
+            available_points = list(range(8))
         
-        # 選擇一個點
-        point_index = available_points[0]
-        spawn_center = self.center_points_by_face[face_id][point_index]
+        # 從配置獲取最小距離參數
+        min_window_distance = self.config.get_int('POSITION', 'min_window_distance', 120)
+        
+        # 嘗試找到合適的點和位置
+        best_point_index = None
+        best_position = None
+        max_attempts = 10  # 最大嘗試次數
+        
+        for attempt in range(max_attempts):
+            # 隨機選擇一個可用點
+            if available_points:
+                point_index = random.choice(available_points)
+            else:
+                break
+                
+            spawn_center = self.center_points_by_face[face_id][point_index]
+            
+            # 在對應象限生成窗口位置
+            win_x, win_y = self._generate_window_position_in_quadrant(
+                center_x, center_y, face_size, point_index, face_id
+            )
+            
+            # 檢查與現有窗口的距離
+            too_close = False
+            for existing_window in self.windows_by_face[face_id]:
+                distance = math.sqrt((win_x - existing_window.x)**2 + (win_y - existing_window.y)**2)
+                if distance < min_window_distance:
+                    too_close = True
+                    break
+            
+            if not too_close:
+                best_point_index = point_index
+                best_position = (win_x, win_y)
+                break
+            else:
+                # 從可用點列表中移除這個點，避免重複嘗試
+                if point_index in available_points:
+                    available_points.remove(point_index)
+        
+        # 如果沒有找到合適的位置，使用第一個可用點
+        if best_point_index is None and available_points:
+            best_point_index = available_points[0]
+            spawn_center = self.center_points_by_face[face_id][best_point_index]
+            best_position = self._generate_window_position_in_quadrant(
+                center_x, center_y, face_size, best_point_index, face_id
+            )
+        
+        # 如果仍然沒有找到，放棄生成
+        if best_point_index is None:
+            return
         
         # 標記這個點為已使用
-        self.used_points_by_face[face_id].append(point_index)
+        self.used_points_by_face[face_id].append(best_point_index)
         
         # 獲取窗口類型
         window_type = self._get_next_window_type(face_id)
         
-        # 在對應象限生成窗口位置
-        win_x, win_y = self._generate_window_position_in_quadrant(
-            center_x, center_y, face_size, point_index
-        )
+        win_x, win_y = best_position
+        spawn_center = self.center_points_by_face[face_id][best_point_index]
         
         new_window = ImprovedCalWindow(win_x, win_y, face_size, window_type, self.config)
         new_window.x = win_x
@@ -1127,7 +1281,7 @@ class ImprovedDetectionWindowEffect:
         # 設置固定的生成點，避免連接線抖動
         new_window.fixed_spawn_center_x = spawn_center[0]
         new_window.fixed_spawn_center_y = spawn_center[1]
-        new_window.point_index = point_index  # 記錄使用的點索引
+        new_window.point_index = best_point_index  # 記錄使用的點索引
         new_window.face_size = face_size  # 記錄臉部大小，用於重新計算生成點
         new_window.update_position()
         
@@ -1178,11 +1332,11 @@ class ImprovedDetectionWindowEffect:
             self.window_spawn_delays[face_id] += 1
             return False
         
-        spawn_chance = self.spawn_rate * 0.3
+        spawn_chance = self.spawn_rate
         return random.random() < spawn_chance
     
     def generate_center_points_for_face(self, face_id, center_x, center_y, face_size):
-        """生成4個分散在四個角落的點"""
+        """生成8個分散在四個角落的點，每個角落有2個點"""
         center_points = []
         
         frame_size = face_size * 1.3
@@ -1192,12 +1346,23 @@ class ImprovedDetectionWindowEffect:
         quadrant_spread = self.config.get_float('POSITION', 'quadrant_spread', 0.35)
         random_offset_ratio = self.config.get_float('POSITION', 'random_offset_ratio', 0.05)
         
-        # 固定的四個象限偏移
+        # 每個象限的兩個點偏移（內圈和外圈）
         quadrant_offsets = [
-            (-quadrant_spread, -quadrant_spread),  # 左上
-            (quadrant_spread, -quadrant_spread),   # 右上
-            (quadrant_spread, quadrant_spread),    # 右下
-            (-quadrant_spread, quadrant_spread)    # 左下
+            # 左上象限 - 2個點
+            (-quadrant_spread * 0.7, -quadrant_spread * 0.7),  # 內圈
+            (-quadrant_spread * 1.3, -quadrant_spread * 1.3),  # 外圈
+            
+            # 右上象限 - 2個點
+            (quadrant_spread * 0.7, -quadrant_spread * 0.7),   # 內圈
+            (quadrant_spread * 1.3, -quadrant_spread * 1.3),   # 外圈
+            
+            # 右下象限 - 2個點
+            (quadrant_spread * 0.7, quadrant_spread * 0.7),    # 內圈
+            (quadrant_spread * 1.3, quadrant_spread * 1.3),    # 外圈
+            
+            # 左下象限 - 2個點
+            (-quadrant_spread * 0.7, quadrant_spread * 0.7),   # 內圈
+            (-quadrant_spread * 1.3, quadrant_spread * 1.3),   # 外圈
         ]
         
         for offset_x, offset_y in quadrant_offsets:
@@ -1217,13 +1382,15 @@ class ImprovedDetectionWindowEffect:
         
         self.center_points_by_face[face_id] = center_points
     
-    def _generate_window_position_in_quadrant(self, center_x, center_y, face_size, quadrant_index):
-        """在對應象限生成窗口位置"""
+    def _generate_window_position_in_quadrant(self, center_x, center_y, face_size, point_index, face_id=None):
+        """在對應點附近生成窗口位置"""
         # 從配置獲取距離參數
         min_radius = self.config.get_int('POSITION', 'min_radius', 200)
-        max_radius = self.config.get_int('POSITION', 'max_radius', 350)
+        max_radius = self.config.get_int('POSITION', 'max_radius', 500)
         
-        base_distance = face_size * 1.5
+        # 根據點索引確定象限和內外圈
+        quadrant_index = point_index // 2  # 0-3 對應四個象限
+        is_outer = point_index % 2 == 1    # 奇數為外圈，偶數為內圈
         
         # 每個象限的角度範圍
         angle_ranges = [
@@ -1234,18 +1401,68 @@ class ImprovedDetectionWindowEffect:
         ]
         
         angle_range = angle_ranges[quadrant_index]
-        angle = random.uniform(angle_range[0], angle_range[1])
-        angle_rad = math.radians(angle)
         
-        distance = base_distance + random.uniform(0, face_size * 0.3)
-        win_x = center_x + distance * math.cos(angle_rad)
-        win_y = center_y + distance * math.sin(angle_rad)
+        # 從配置獲取內外圈倍數
+        inner_multiplier = self.config.get_float('POSITION', 'inner_radius_multiplier', 0.7)
+        outer_multiplier = self.config.get_float('POSITION', 'outer_radius_multiplier', 1.3)
         
-        window_margin = 100
-        win_x = max(window_margin, min(self.screen_width - window_margin, win_x))
-        win_y = max(window_margin, min(self.screen_height - window_margin, win_y))
+        # 根據內外圈調整距離範圍
+        if is_outer:
+            # 外圈使用較大的距離範圍
+            min_distance = max(min_radius * outer_multiplier, face_size * 1.8)
+            max_distance = max(max_radius * outer_multiplier, face_size * 2.5)
+        else:
+            # 內圈使用較小的距離範圍
+            min_distance = max(min_radius * inner_multiplier, face_size * 1.2)
+            max_distance = max(max_radius * inner_multiplier, face_size * 2.0)
         
-        return int(win_x), int(win_y)
+        # 嘗試多個角度和距離，找到最佳位置
+        best_position = None
+        min_window_distance = self.config.get_int('POSITION', 'min_window_distance', 120)
+        
+        for attempt in range(5):  # 嘗試5次找到合適位置
+            # 隨機角度
+            angle = random.uniform(angle_range[0], angle_range[1])
+            angle_rad = math.radians(angle)
+            
+            # 在配置的距離範圍內隨機選擇距離
+            distance = random.uniform(min_distance, max_distance)
+            win_x = center_x + distance * math.cos(angle_rad)
+            win_y = center_y + distance * math.sin(angle_rad)
+            
+            # 確保在屏幕邊界內
+            window_margin = 100
+            win_x = max(window_margin, min(self.screen_width - window_margin, win_x))
+            win_y = max(window_margin, min(self.screen_height - window_margin, win_y))
+            
+            # 檢查與現有窗口的距離（如果提供了face_id）
+            too_close = False
+            if face_id is not None:
+                for existing_window in self.windows_by_face.get(face_id, []):
+                    distance_to_existing = math.sqrt((win_x - existing_window.x)**2 + (win_y - existing_window.y)**2)
+                    if distance_to_existing < min_window_distance:
+                        too_close = True
+                        break
+            
+            if not too_close:
+                best_position = (int(win_x), int(win_y))
+                break
+        
+        # 如果沒有找到合適位置，使用第一個嘗試的位置
+        if best_position is None:
+            angle = random.uniform(angle_range[0], angle_range[1])
+            angle_rad = math.radians(angle)
+            distance = random.uniform(min_distance, max_distance)
+            win_x = center_x + distance * math.cos(angle_rad)
+            win_y = center_y + distance * math.sin(angle_rad)
+            
+            window_margin = 100
+            win_x = max(window_margin, min(self.screen_width - window_margin, win_x))
+            win_y = max(window_margin, min(self.screen_height - window_margin, win_y))
+            
+            best_position = (int(win_x), int(win_y))
+        
+        return best_position
     
     def set_flicker_state_for_face(self, face_id, should_flicker):
         if face_id in self.windows_by_face:
@@ -1253,7 +1470,7 @@ class ImprovedDetectionWindowEffect:
                 window.set_force_flicker(should_flicker) 
     
     def draw_all_windows(self, frame, color_bgr=(255, 255, 255)):
-        """只繪製窗口，不繪製點"""
+        """繪製窗口和球體點"""
         # 如果正在消失，調整透明度
         if self.fade_state == "fading":
             # 計算消失進度
@@ -1270,13 +1487,51 @@ class ImprovedDetectionWindowEffect:
         if self.fade_state == "hidden":
             return
             
+        # 繪製窗口和對應的球體點
         for face_id, windows in self.windows_by_face.items():
             for window in windows:
                 if face_id in self.face_states:
                     window.set_detection_state(self.face_states[face_id])
-                # 應用消失透明度
-                window.alpha = self.fade_alpha
+                # 🔧 修復：只在非強制閃爍時應用消失透明度，避免覆蓋閃爍效果
+                if not window.force_flicker:
+                    window.alpha = self.fade_alpha
+                
+                # 繪製窗口
                 window.draw_on_cv_frame(frame, color_bgr)
+                
+                # 繪製對應的球體點（只在窗口顯示時）
+                if window.display and window.detection_state >= 3:
+                    self.draw_sphere_point_for_window(frame, window, color_bgr)
+    
+    def draw_sphere_point_for_window(self, frame, window, color_bgr=(255, 255, 255)):
+        """為特定窗口繪製對應的球體點"""
+        # 從配置獲取球體點設定
+        sphere_radius = self.config.get_int('VISUAL', 'sphere_radius', 6)
+        sphere_alpha = self.config.get_int('VISUAL', 'sphere_alpha', 120)
+        sphere_thickness = self.config.get_int('VISUAL', 'sphere_thickness', 1)
+        
+        # 應用消失透明度和窗口透明度
+        sphere_alpha = int(sphere_alpha * self.fade_alpha * window.alpha)
+        sphere_color = tuple(int(c * sphere_alpha / 255) for c in color_bgr)
+        
+        # 根據配置決定使用哪個連接點
+        use_stable_lines = self.config.get_bool('BASIC', 'stable_connection_lines', True)
+        if use_stable_lines and hasattr(window, 'fixed_spawn_center_x'):
+            # 使用固定的生成點，避免抖動
+            sphere_x = int(window.fixed_spawn_center_x)
+            sphere_y = int(window.fixed_spawn_center_y)
+        else:
+            # 使用動態生成點
+            sphere_x = int(window.spawn_center_x)
+            sphere_y = int(window.spawn_center_y)
+        
+        # 繪製球體點
+        cv2.circle(frame, (sphere_x, sphere_y), sphere_radius, sphere_color, sphere_thickness)
+    
+    def draw_sphere_points(self, frame, color_bgr=(255, 255, 255)):
+        """繪製球體點（已棄用，改為 draw_sphere_point_for_window）"""
+        # 這個方法現在只作為備用，主要使用 draw_sphere_point_for_window
+        pass
     
     def get_total_window_count(self):
         return sum(len(windows) for windows in self.windows_by_face.values())

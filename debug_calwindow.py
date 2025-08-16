@@ -21,7 +21,7 @@ from utils.anim_config_loader import AnimConfigLoader
 
 # 全域frame_count變數
 frame_count = 0
-CONTENT_ANIMATION_SPEED = 0.1
+CONTENT_ANIMATION_SPEED = 0.001
 
 # Processing風格噪聲
 class ProcessingStyleNoise:
@@ -810,7 +810,7 @@ class ImprovedDetectionWindowEffect:
         
         self.face_states = {}
         self.window_spawn_delays = {}
-        self.max_windows_per_face = 4
+        self.max_windows_per_face = 8
         self.spawn_delay_frames = 30
         
         self.window_type_counters = {}
@@ -903,12 +903,23 @@ class ImprovedDetectionWindowEffect:
         frame_size = face_size * 1.3
         frame_half_size = frame_size * 0.5
         
-        # 定義四個象限的偏移比例
+        # 定義八個點的偏移比例（每個象限2個點）
         quadrant_offsets = [
-            (-0.35, -0.35),  # 左上
-            (0.35, -0.35),   # 右上
-            (0.35, 0.35),    # 右下
-            (-0.35, 0.35)    # 左下
+            # 左上象限 - 2個點
+            (-0.35 * 0.7, -0.35 * 0.7),  # 內圈
+            (-0.35 * 1.3, -0.35 * 1.3),  # 外圈
+            
+            # 右上象限 - 2個點
+            (0.35 * 0.7, -0.35 * 0.7),   # 內圈
+            (0.35 * 1.3, -0.35 * 1.3),   # 外圈
+            
+            # 右下象限 - 2個點
+            (0.35 * 0.7, 0.35 * 0.7),    # 內圈
+            (0.35 * 1.3, 0.35 * 1.3),    # 外圈
+            
+            # 左下象限 - 2個點
+            (-0.35 * 0.7, 0.35 * 0.7),   # 內圈
+            (-0.35 * 1.3, 0.35 * 1.3),   # 外圈
         ]
         
         updated_points = []
@@ -955,7 +966,7 @@ class ImprovedDetectionWindowEffect:
             # 如果沒有可用的點，重新生成
             self.generate_center_points_for_face(face_id, center_x, center_y, face_size)
             self.used_points_by_face[face_id] = []
-            available_points = list(range(4))
+            available_points = list(range(8))
         
         # 選擇一個點
         point_index = available_points[0]
@@ -1023,18 +1034,29 @@ class ImprovedDetectionWindowEffect:
         return random.random() < spawn_chance
     
     def generate_center_points_for_face(self, face_id, center_x, center_y, face_size):
-        """生成4個分散在四個角落的點"""
+        """生成8個分散在四個角落的點，每個角落有2個點"""
         center_points = []
         
         frame_size = face_size * 1.3
         frame_half_size = frame_size * 0.5
         
-        # 固定的四個象限偏移
+        # 每個象限的兩個點偏移（內圈和外圈）
         quadrant_offsets = [
-            (-0.35, -0.35),  # 左上
-            (0.35, -0.35),   # 右上
-            (0.35, 0.35),    # 右下
-            (-0.35, 0.35)    # 左下
+            # 左上象限 - 2個點
+            (-0.35 * 0.7, -0.35 * 0.7),  # 內圈
+            (-0.35 * 1.3, -0.35 * 1.3),  # 外圈
+            
+            # 右上象限 - 2個點
+            (0.35 * 0.7, -0.35 * 0.7),   # 內圈
+            (0.35 * 1.3, -0.35 * 1.3),   # 外圈
+            
+            # 右下象限 - 2個點
+            (0.35 * 0.7, 0.35 * 0.7),    # 內圈
+            (0.35 * 1.3, 0.35 * 1.3),    # 外圈
+            
+            # 左下象限 - 2個點
+            (-0.35 * 0.7, 0.35 * 0.7),   # 內圈
+            (-0.35 * 1.3, 0.35 * 1.3),   # 外圈
         ]
         
         for offset_x, offset_y in quadrant_offsets:
@@ -1054,9 +1076,13 @@ class ImprovedDetectionWindowEffect:
         
         self.center_points_by_face[face_id] = center_points
     
-    def _generate_window_position_in_quadrant(self, center_x, center_y, face_size, quadrant_index):
-        """在對應象限生成窗口位置"""
+    def _generate_window_position_in_quadrant(self, center_x, center_y, face_size, point_index):
+        """在對應點附近生成窗口位置"""
         base_distance = face_size * 1.5
+        
+        # 根據點索引確定象限和內外圈
+        quadrant_index = point_index // 2  # 0-3 對應四個象限
+        is_outer = point_index % 2 == 1    # 奇數為外圈，偶數為內圈
         
         # 每個象限的角度範圍
         angle_ranges = [
@@ -1070,7 +1096,13 @@ class ImprovedDetectionWindowEffect:
         angle = random.uniform(angle_range[0], angle_range[1])
         angle_rad = math.radians(angle)
         
-        distance = base_distance + random.uniform(0, face_size * 0.3)
+        # 根據內外圈調整距離
+        if is_outer:
+            distance_multiplier = 1.3  # 外圈距離更遠
+        else:
+            distance_multiplier = 0.9  # 內圈距離更近
+        
+        distance = base_distance * distance_multiplier + random.uniform(0, face_size * 0.3)
         win_x = center_x + distance * math.cos(angle_rad)
         win_y = center_y + distance * math.sin(angle_rad)
         

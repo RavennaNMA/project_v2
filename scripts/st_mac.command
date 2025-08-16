@@ -1,32 +1,25 @@
 #!/bin/bash
 # Location: project_v2/scripts/st_mac.command
-# Usage: Mac 啟動指令檔（增強版）
+# Usage: Mac 啟動指令檔（可雙擊執行）
 
 # 取得腳本所在目錄並移動到項目根目錄
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$DIR")"
 cd "$PROJECT_ROOT"
 
-# 顏色定義
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 echo "================================"
-echo -e "${GREEN}System- Mac v2 (Debug)${NC}"
+echo "System- Mac v2 (Debug)"
 echo "================================"
 echo "工作目錄: $(pwd)"
 
 # 檢查 Python 版本
-echo -e "${BLUE}檢查 Python 版本...${NC}"
+echo "檢查 Python 版本..."
 if command -v python3 &> /dev/null; then
     PYTHON_CMD=python3
 elif command -v python &> /dev/null; then
     PYTHON_CMD=python
 else
-    echo -e "${RED}錯誤：找不到 Python！${NC}"
+    echo "錯誤：找不到 Python！"
     echo "請先安裝 Python 3.8 或以上版本"
     echo "建議使用 Homebrew 安裝: brew install python3"
     echo "或從官網下載: https://www.python.org/downloads/"
@@ -34,15 +27,15 @@ else
     exit 1
 fi
 
-PYTHON_VERSION=$($PYTHON_CMD --version)
-echo -e "${GREEN} Python 版本: $PYTHON_VERSION${NC}"
+# 顯示 Python 版本
+echo "Python 版本: $($PYTHON_CMD --version)"
 
 # 檢查虛擬環境
 if [ -d "venv" ]; then
-    echo -e "${BLUE}找到虛擬環境，啟動中...${NC}"
+    echo "找到虛擬環境，啟動中..."
     source venv/bin/activate
 else
-    echo -e "${YELLOW}建立虛擬環境...${NC}"
+    echo "建立虛擬環境..."
     $PYTHON_CMD -m venv venv
     source venv/bin/activate
     
@@ -50,20 +43,19 @@ else
     pip install --upgrade pip
     
     echo "安裝相依套件（Mac 版本）..."
+    # 為 Mac 安裝特定版本的依賴項
     pip install -r requirements.txt
     
-    echo -e "${BLUE}檢查 Mac 特定依賴項...${NC}"
+    echo "檢查 Mac 特定依賴項..."
+    # 確保 torch 使用 Mac 優化版本
     if [[ $(uname -m) == "arm64" ]]; then
-        echo -e "${GREEN}檢測到 Apple Silicon (M1/M2/M3/M4)${NC}"
-        echo "使用優化版本的 PyTorch..."
-        pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu || echo -e "${YELLOW}⚠️ torch 安裝失敗，將使用預設版本${NC}"
-    else
-        echo -e "${GREEN}檢測到 Intel Mac${NC}"
+        echo "檢測到 Apple Silicon (M1/M2/M3)，使用優化版本..."
+        pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu || echo "警告: torch 安裝失敗，將使用預設版本"
     fi
 fi
 
 # 建立必要目錄
-echo -e "${BLUE}建立必要目錄...${NC}"
+echo "建立必要目錄..."
 mkdir -p webcam-shots
 mkdir -p weapons_img
 mkdir -p fonts
@@ -72,91 +64,36 @@ mkdir -p config
 # 檢查字型檔案
 if [ ! -f "fonts/NotoSansCJKtc-Regular.otf" ]; then
     echo ""
-    echo -e "${YELLOW}⚠️ 警告：找不到中文字型檔案${NC}"
+    echo "警告：找不到中文字型檔案"
     echo "請將 NotoSansCJKtc-Regular.otf 放入 fonts/ 目錄"
     echo "程式將使用系統預設字型 (PingFang TC)"
     echo ""
 fi
 
 # 檢查必要配置文件
-echo -e "${BLUE}檢查配置文件...${NC}"
+echo "檢查配置文件..."
 if [ ! -d "config" ]; then
-    echo -e "${RED}❌ 錯誤：找不到 config 目錄${NC}"
+    echo "錯誤：找不到 config 目錄"
     exit 1
 fi
 
-# 檢查相機可用性
-echo -e "${BLUE}檢查相機設備...${NC}"
-CAMERA_COUNT=$(system_profiler SPCameraDataType 2>/dev/null | grep -c "Camera")
-if [ "$CAMERA_COUNT" -gt 0 ]; then
-    echo -e "${GREEN}✅ 找到 $CAMERA_COUNT 個相機設備${NC}"
-else
-    echo -e "${YELLOW}⚠️ 未檢測到相機設備，程式可能無法正常運作${NC}"
-    echo "請確保：1) 相機已連接 2) 相機權限已允許"
-fi
+# 檢查相機權限
+echo "注意：程式需要相機權限"
+echo "如果系統提示，請允許相機存取權限"
+echo ""
 
 # 啟動程式
+echo "啟動偵測系統..."
 echo ""
-echo -e "${GREEN}🚀 啟動防禦偵測系統...${NC}"
-echo ""
+python main.py
 
-# 記錄啟動時間
-START_TIME=$(date)
-echo "啟動時間: $START_TIME"
-
-# 啟動程式並捕捉錯誤
-# macOS 沒有 timeout 命令，使用 background process 替代
-python main.py &
-MAIN_PID=$!
-
-# 等待程式執行
-wait $MAIN_PID
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -eq 0 ]; then
+# 如果程式異常結束，保持視窗開啟
+if [ $? -ne 0 ]; then
     echo ""
-    echo -e "${GREEN}程式正常結束${NC}"
-else
-    echo ""
-    echo -e "${RED}程式異常結束 (Exit Code: $EXIT_CODE)${NC}"
-    
-    echo ""
-    echo -e "${YELLOW}偵錯資訊：${NC}"
-    echo "啟動時間: $START_TIME"
-    echo "結束時間: $(date)"
-    echo "工作目錄: $(pwd)"
-    echo "Python 版本: $PYTHON_VERSION"
-    echo "系統資訊: $(uname -a)"
-    
-    echo ""
-    echo -e "${BLUE}💡 常見問題解決方案：${NC}"
-    echo "1. 相機問題："
-    echo "   • 檢查相機是否被其他應用程式佔用"
-    echo "   • 重新授予相機權限：系統偏好設定 > 安全性與隱私 > 相機"
-    echo "   • 嘗試重新連接外接相機"
-    echo ""
-    echo "2. 權限問題："
-    echo "   • 確保允許了所有系統權限提示"
-    echo "   • 可能需要在系統偏好設定中手動授權"
-    echo ""
-    echo "3. 依賴套件問題："
-    echo "   • 執行: pip install -r requirements.txt --force-reinstall"
-    echo "   • 刪除 venv 目錄後重新執行此腳本"
-    echo ""
-    echo "4. 如果問題持續："
-    echo "   • 查看上方錯誤訊息的詳細內容"
-    echo "   • 檢查 webcam-shots 目錄是否可寫入"
-    echo "   • 確認所有配置檔案完整"
-    
-    # 提供重新啟動選項
-    echo ""
-    read -p "是否要重新啟動程式？(y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${BLUE}重新啟動中...${NC}"
-        exec "$0"  # 重新執行腳本
-    fi
-fi
-
-echo ""
-read -p "按 Enter 鍵關閉..."
+    echo "程式異常結束"
+    echo "常見問題解決方案："
+    echo "1. 確保已允許相機權限"
+    echo "2. 檢查虛擬環境是否正確安裝"
+    echo "3. 執行: pip install -r requirements.txt"
+    read -p "按 Enter 鍵關閉..."
+fi 

@@ -1,22 +1,25 @@
 SECTION,KEY,VALUE,DESCRIPTION
 BASIC,enabled,True,啟用 cal windows effect
-BASIC,spawn_rate,0.2,每幀生成窗口的機率 (0.01-0.1)
+BASIC,spawn_rate,0.6,每幀生成窗口的機率 (0.01-0.1)
 BASIC,max_windows_per_face,8,每個臉部最大窗口數量
-BASIC,spawn_delay_frames,5,生成延遲幀數
-BASIC,min_life,200,窗口最小生命值
+BASIC,spawn_delay_frames,3,生成延遲幀數
+BASIC,min_life,400,窗口最小生命值
 BASIC,max_life,800,窗口最大生命值
-BASIC,connection_alpha,120,連接線透明度 (0-255)
-BASIC,window_alpha,180,窗口透明度 (0-255)
+BASIC,connection_alpha,80,連接線透明度 (0-255)
+BASIC,window_alpha,80,窗口透明度 (0-255)
 BASIC,stable_connection_lines,True,使用穩定的連接線（避免抖動）
 BASIC,line_smooth_factor,0.8,連接線平滑度 (0.5-1.0)
+BASIC,connect_to_window_edge,True,連接線連接到窗口邊緣而不是中心
 BASIC,window_smooth_factor,0.15,窗口移動平滑度 (0.05-0.3)
 BASIC,spawn_point_smooth_factor,0.12,生成點平滑度 (0.05-0.2)
 BASIC,cal_window_fade_frames,50,LLM完成後cal window消失等待幀數
 BASIC,detect_frame_fade_frames,50,cal window消失後detect frame消失等待幀數
 POSITION,point_smooth_factor,0.1,點移動平滑度 (0.01-0.3)
-POSITION,min_radius,200,最小距離中心點距離
-POSITION,max_radius,350,最大距離中心點距離
-POSITION,quadrant_spread,0.35,象限擴散比例
+POSITION,min_radius,500,最小距離中心點距離 (像素)
+POSITION,max_radius,1000,最大距離中心點距離 (像素)
+POSITION,inner_radius_multiplier,0.7,內圈距離倍數 (相對於外圈)
+POSITION,outer_radius_multiplier,1.6,外圈距離倍數 (相對於內圈)
+POSITION,quadrant_spread,0.7,象限擴散比例
 POSITION,random_offset_ratio,0.05,隨機偏移比例
 VISUAL,window_width_base,160,窗口基礎寬度
 VISUAL,window_height_base,100,窗口基礎高度
@@ -24,6 +27,9 @@ VISUAL,size_multiplier_min,0.9,窗口大小倍數最小值
 VISUAL,size_multiplier_max,1.1,窗口大小倍數最大值
 VISUAL,line_thickness,1.0,線條粗細
 VISUAL,inner_alpha,50,內部填充透明度 (0-255)
-ANIMATION,content_animation_speed,0.005,內容動畫速度
+VISUAL,sphere_radius,2,球體點半徑 (像素)
+VISUAL,sphere_alpha,120,球體點透明度 (0-255)
+VISUAL,sphere_thickness,1,球體點線條粗細
+ANIMATION,content_animation_speed,0.0003,內容動畫速度
 ANIMATION,frame_count_global,True,使用全域幀計數
 ANIMATION,window_type_sequences,True,使用窗口類型序列 

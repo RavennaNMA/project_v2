@@ -3,7 +3,7 @@
 偵測：所需秒數,detect_duration,3,人臉需持續偵測多久才觸發截圖
 偵測框：大小比例,detect_area_ratio,0.9,偵測框相對於臉部大小的比例
 偵測框：高度倍數,detect_frame_height_multiplier,1.2,檢測框架高度相對於寬度的倍數
-偵測框：底部偏移,detect_frame_bottom_offset,-0.005,檢測框架底部向下偏移的比例（相對於框架高度）
+偵測框：底部偏移,detect_frame_bottom_offset,0.1,檢測框架底部向下偏移的比例（相對於框架高度）
 偵測：最小臉部尺寸,min_face_area_ratio,0.001,最小臉部面積比例（適合廣角攝像頭）
 LLM 回應最大等待時間,llm_response_timeout,15,等待AI回應的最長時間
 淡入時間,screenshot_fade_in,1,截圖淡入效果時間

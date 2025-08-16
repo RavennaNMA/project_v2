@@ -133,7 +133,7 @@ class AnimConfigLoader:
             'BASIC': {
                 'enabled': True,
                 'spawn_rate': 0.1,
-                'max_windows_per_face': 4,
+                'max_windows_per_face': 8,
                 'spawn_delay_frames': 30,
                 'min_life': 200,
                 'max_life': 400,
@@ -147,8 +147,10 @@ class AnimConfigLoader:
                 'detect_frame_fade_frames': 5
             },
             'POSITION': {
-                'min_radius': 200,
-                'max_radius': 350,
+                'min_radius': 300,
+                'max_radius': 600,
+                'inner_radius_multiplier': 0.7,
+                'outer_radius_multiplier': 1.3,
                 'quadrant_spread': 0.35,
                 'random_offset_ratio': 0.05,
                 'point_smooth_factor': 0.1
@@ -162,7 +164,7 @@ class AnimConfigLoader:
                 'inner_alpha': 50
             },
             'ANIMATION': {
-                'content_animation_speed': 0.1,
+                'content_animation_speed': 0.001,
                 'frame_count_global': True,
                 'window_type_sequences': True
             }
