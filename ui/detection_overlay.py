@@ -448,5 +448,7 @@ class DetectionOverlay(QWidget):
             pass
     
     def paintEvent(self, event):
-        """繪製事件（如果需要）"""
-        super().paintEvent(event)
+        """繪製事件 - 確保透明背景"""
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), painter.background())
+        painter.end()

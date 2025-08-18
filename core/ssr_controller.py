@@ -100,7 +100,7 @@ class SSRThread(QThread):
         
     def run(self):
         """執行緒主邏輯"""
-        print("🔌 SSR執行緒啟動")
+        # SSR執行緒啟動
         
         while not self.should_stop:
             # 檢查SSR1
@@ -157,7 +157,7 @@ class SSRThread(QThread):
                 
             # 檢查SSR2
             if self.ssr2_active and not self.ssr2_processed:
-                print(f"💡 處理 SSR2: Pin {self.config.ssr2_pin}")
+                # 處理 SSR2
                 
                 # 等待前延遲
                 if self.config.ssr2_delay_before > 0:
@@ -190,7 +190,7 @@ class SSRThread(QThread):
                 
             self.msleep(50)  # 短暫休眠
         
-        print("🔌 SSR執行緒結束")
+        # SSR執行緒結束
 
 
 
@@ -242,7 +242,7 @@ class LightingController(QObject):
     def handle_state_lighting(self, state_name):
         """🔥 新增：根據狀態控制燈光"""
         self.current_state = state_name
-        print(f"🎭 LightingController: 狀態變更為 {state_name}")
+        # LightingController 狀態變更
         
         if state_name in ["DETECTING", "LLM_LOADING"]:
             # ESP32 B 所有 SSR = HIGH
@@ -264,14 +264,14 @@ class LightingController(QObject):
     
     def set_detecting_lighting(self):
         """設置偵測/LLM載入狀態的燈光 - ESP32 B 和 ESP32 C 全HIGH"""
-        print("🌟 設置偵測狀態燈光: ESP32 B 和 ESP32 C 全HIGH")
+        # 設置偵測狀態燈光
         
         if self.no_esp32_mode:
             # 模擬模式
             # ESP32 B: 全部 HIGH
             for i, pin in enumerate(self.all_esp32b_pins, 1):
                 self.simulated_states['B'][pin] = 'HIGH'
-                self.debug_message.emit(f"[SIM] ESP32 B G{pin} -> HIGH (lighton{i:02d})")
+                self.debug_message.emit(f"[SIM] ESP32 B G{pin} -> HIGH (/light {i} 1)")
             # ESP32 C: G4 HIGH
             self.simulated_states['C'][4] = 'HIGH'
             self.debug_message.emit("[SIM] ESP32 C G4 -> HIGH")
@@ -281,7 +281,7 @@ class LightingController(QObject):
                 # ESP32 B: 全部 HIGH
                 for i, pin in enumerate(self.all_esp32b_pins, 1):
                     self.esp32.set_esp32_pin_state('B', pin, 'HIGH', 0)
-                    self.debug_message.emit(f"ESP32 B G{pin} -> HIGH (lighton{i:02d})")
+                    self.debug_message.emit(f"ESP32 B G{pin} -> HIGH (/light {i} 1)")
                 # ESP32 C: G4 HIGH
                 self.esp32.set_esp32_pin_state('C', 4, 'HIGH', 0)
                 self.debug_message.emit("ESP32 C G4 -> HIGH")
@@ -290,18 +290,18 @@ class LightingController(QObject):
         if self.osc_controller:
             for i in range(1, 14):
                 self.osc_controller.send_light_command(i, True)
-                self.debug_message.emit(f"OSC: lighton{i:02d}")
+                self.debug_message.emit(f"OSC: /light {i} 1")
     
     def set_all_lights_on(self):
         """設置所有燈光為開啟狀態 (平常/偵測中)"""
-        print("🌟 設置所有燈光為開啟狀態")
+        # 設置所有燈光為開啟狀態
         
         if self.no_esp32_mode:
             # 模擬模式
             # ESP32 B: 1-13 全部開啟 (HIGH)
             for i, pin in enumerate(self.all_esp32b_pins, 1):
                 self.simulated_states['B'][pin] = 'HIGH'
-                self.debug_message.emit(f"[SIM] ESP32 B G{pin} -> HIGH (lighton{i:02d})")
+                self.debug_message.emit(f"[SIM] ESP32 B G{pin} -> HIGH (/light {i} 1)")
             # ESP32 C: G4 開啟 (HIGH)
             self.simulated_states['C'][4] = 'HIGH'
             self.debug_message.emit("[SIM] ESP32 C G4 -> HIGH")
@@ -311,7 +311,7 @@ class LightingController(QObject):
                 # ESP32 B: 1-13 全部開啟 (HIGH)
                 for i, pin in enumerate(self.all_esp32b_pins, 1):
                     self.esp32.set_esp32_pin_state('B', pin, 'HIGH', 0)
-                    self.debug_message.emit(f"ESP32 B G{pin} -> HIGH (lighton{i:02d})")
+                    self.debug_message.emit(f"ESP32 B G{pin} -> HIGH (/light {i} 1)")
                     
                 # ESP32 C: G4 開啟 (HIGH)
                 self.esp32.set_esp32_pin_state('C', 4, 'HIGH', 0)
@@ -321,17 +321,17 @@ class LightingController(QObject):
         if self.osc_controller:
             for i in range(1, 14):
                 self.osc_controller.send_light_command(i, True)
-                self.debug_message.emit(f"OSC: lighton{i:02d}")
+                self.debug_message.emit(f"OSC: /light {i} 1")
     
     def set_all_lights_off(self):
         """設置所有燈光為關閉狀態 (Spotlight/Caption狀態)"""
-        print("🌑 設置所有燈光為關閉狀態")
+        # 設置所有燈光為關閉狀態
         
         if self.no_esp32_mode:
             # 模擬模式
             for i, pin in enumerate(self.all_esp32b_pins, 1):
                 self.simulated_states['B'][pin] = 'LOW'
-                self.debug_message.emit(f"[SIM] ESP32 B G{pin} -> LOW (lightoff{i:02d})")
+                self.debug_message.emit(f"[SIM] ESP32 B G{pin} -> LOW (/light {i} 0)")
             self.simulated_states['C'][4] = 'LOW'
             self.debug_message.emit("[SIM] ESP32 C G4 -> LOW")
         else:
@@ -340,7 +340,7 @@ class LightingController(QObject):
                 # ESP32 B: 1-13 全部關閉 (LOW)
                 for i, pin in enumerate(self.all_esp32b_pins, 1):
                     self.esp32.set_esp32_pin_state('B', pin, 'LOW', 0)
-                    self.debug_message.emit(f"ESP32 B G{pin} -> LOW (lightoff{i:02d})")
+                    self.debug_message.emit(f"ESP32 B G{pin} -> LOW (/light {i} 0)")
                     
                 # ESP32 C: G4 關閉 (LOW)
                 self.esp32.set_esp32_pin_state('C', 4, 'LOW', 0)
@@ -350,7 +350,7 @@ class LightingController(QObject):
         if self.osc_controller:
             for i in range(1, 14):
                 self.osc_controller.send_light_command(i, False)
-                self.debug_message.emit(f"OSC: lightoff{i:02d}")
+                self.debug_message.emit(f"OSC: /light {i} 0")
     
     def start_caption_lighting(self):
         """開始字幕燈光 - 實際上是關閉所有燈光"""
@@ -394,18 +394,18 @@ class LightingController(QObject):
                 # 模擬模式
                 weapon_pin_b = self.weapon_light_pins[weapon_num - 1]
                 self.simulated_states['B'][weapon_pin_b] = 'HIGH'
-                self.debug_message.emit(f"[SIM] ESP32 B G{weapon_pin_b} -> HIGH (lighton{weapon_num:02d})")
+                self.debug_message.emit(f"[SIM] ESP32 B G{weapon_pin_b} -> HIGH (/light {weapon_num} 1)")
             else:
                 # 實際控制
                 if self.esp32:
                     weapon_pin_b = self.weapon_light_pins[weapon_num - 1]
                     self.esp32.set_esp32_pin_state('B', weapon_pin_b, 'HIGH', 0)
-                    self.debug_message.emit(f"ESP32 B G{weapon_pin_b} -> HIGH (lighton{weapon_num:02d})")
+                    self.debug_message.emit(f"ESP32 B G{weapon_pin_b} -> HIGH (/light {weapon_num} 1)")
             
             # OSC: 對應燈光
             if self.osc_controller:
                 self.osc_controller.send_light_command(weapon_num, True)
-                self.debug_message.emit(f"OSC: lighton{weapon_num:02d}")
+                self.debug_message.emit(f"OSC: /light {weapon_num} 1")
             
             # 電磁砲特殊處理 (5,6,7)
             if weapon_id in ['05', '06', '07']:
@@ -414,16 +414,16 @@ class LightingController(QObject):
                 if self.no_esp32_mode:
                     # 模擬模式
                     self.simulated_states['B'][self.wall_light_pin] = 'HIGH'
-                    self.debug_message.emit(f"[SIM] ESP32 B G{self.wall_light_pin} -> HIGH (lighton13) - 電磁砲")
+                    self.debug_message.emit(f"[SIM] ESP32 B G{self.wall_light_pin} -> HIGH (/light 13 1) - 電磁砲")
                 else:
                     # 實際控制
                     if self.esp32:
                         self.esp32.set_esp32_pin_state('B', self.wall_light_pin, 'HIGH', 0)
-                        self.debug_message.emit(f"ESP32 B G{self.wall_light_pin} -> HIGH (lighton13) - 電磁砲")
+                        self.debug_message.emit(f"ESP32 B G{self.wall_light_pin} -> HIGH (/light 13 1) - 電磁砲")
                 
                 if self.osc_controller:
                     self.osc_controller.send_light_command(13, True)
-                    self.debug_message.emit("OSC: lighton13 - 電磁砲")
+                    self.debug_message.emit("OSC: /light 13 1 - 電磁砲")
                 
                 # 設定關閉計時器
                 from PyQt6.QtCore import QTimer
@@ -456,17 +456,17 @@ class LightingController(QObject):
                 # 模擬模式
                 weapon_pin_b = self.weapon_light_pins[weapon_num - 1]
                 self.simulated_states['B'][weapon_pin_b] = 'LOW'
-                self.debug_message.emit(f"[SIM] ESP32 B G{weapon_pin_b} -> LOW (lightoff{weapon_num:02d})")
+                self.debug_message.emit(f"[SIM] ESP32 B G{weapon_pin_b} -> LOW (/light {weapon_num} 0)")
             else:
                 # 實際控制
                 if self.esp32:
                     weapon_pin_b = self.weapon_light_pins[weapon_num - 1]
                     self.esp32.set_esp32_pin_state('B', weapon_pin_b, 'LOW', 0)
-                    self.debug_message.emit(f"ESP32 B G{weapon_pin_b} -> LOW (lightoff{weapon_num:02d})")
+                    self.debug_message.emit(f"ESP32 B G{weapon_pin_b} -> LOW (/light {weapon_num} 0)")
             
             if self.osc_controller:
                 self.osc_controller.send_light_command(weapon_num, False)
-                self.debug_message.emit(f"OSC: lightoff{weapon_num:02d}")
+                self.debug_message.emit(f"OSC: /light {weapon_num} 0")
     
     def deactivate_wall_light(self):
         """關閉wall light"""
@@ -475,16 +475,16 @@ class LightingController(QObject):
         if self.no_esp32_mode:
             # 模擬模式
             self.simulated_states['B'][self.wall_light_pin] = 'LOW'
-            self.debug_message.emit(f"[SIM] ESP32 B G{self.wall_light_pin} -> LOW (lightoff13)")
+            self.debug_message.emit(f"[SIM] ESP32 B G{self.wall_light_pin} -> LOW (/light 13 0)")
         else:
             # 實際控制
             if self.esp32:
                 self.esp32.set_esp32_pin_state('B', self.wall_light_pin, 'LOW', 0)
-                self.debug_message.emit(f"ESP32 B G{self.wall_light_pin} -> LOW (lightoff13)")
+                self.debug_message.emit(f"ESP32 B G{self.wall_light_pin} -> LOW (/light 13 0)")
             
         if self.osc_controller:
             self.osc_controller.send_light_command(13, False)
-            self.debug_message.emit("OSC: lightoff13")
+            self.debug_message.emit("OSC: /light 13 0")
     
     def reset_lighting(self):
         """🔥 更新：重置燈光狀態 - 符合用戶規範"""
@@ -508,13 +508,13 @@ class LightingController(QObject):
             # 模擬模式
             for i, pin in enumerate(self.all_esp32b_pins, 1):
                 self.simulated_states['B'][pin] = 'HIGH'
-                self.debug_message.emit(f"[SIM] ESP32 B G{pin} -> HIGH (lighton{i:02d})")
+                self.debug_message.emit(f"[SIM] ESP32 B G{pin} -> HIGH (/light {i} 1)")
         else:
             # 實際控制
             if self.esp32:
                 for i, pin in enumerate(self.all_esp32b_pins, 1):
                     self.esp32.set_esp32_pin_state('B', pin, 'HIGH', 0)
-                    self.debug_message.emit(f"ESP32 B G{pin} -> HIGH (lighton{i:02d})")
+                    self.debug_message.emit(f"ESP32 B G{pin} -> HIGH (/light {i} 1)")
         
         # ESP32 C: G4 開啟 (HIGH)
         if self.no_esp32_mode:
@@ -531,7 +531,7 @@ class LightingController(QObject):
         if self.osc_controller:
             for i in range(1, 14):
                 self.osc_controller.send_light_command(i, True)
-                self.debug_message.emit(f"OSC: lighton{i:02d}")
+                self.debug_message.emit(f"OSC: /light {i} 1")
         
         # 啟動ESP32 C G4的10秒自動關閉計時器
         self.start_esp32c_auto_off_timer()
@@ -582,24 +582,9 @@ class LightingController(QObject):
         self.status_changed.emit(status)
     
     def print_debug_status(self):
-        """🔥 新增：調試狀態打印 - 向後兼容"""
-        print(f"=== Lighting Controller Debug Status ===")
-        print(f"  Current State: {self.current_state}")
-        print(f"  ESP32 Controller: {'Available' if self.esp32 else 'None'}")
-        print(f"  OSC Controller: {'Available' if self.osc_controller else 'None'}")
-        print(f"  No ESP32 Mode: {self.no_esp32_mode}")
-        print(f"  ESP32 C Timer: {'Running' if self.esp32c_timer and self.esp32c_timer.isActive() else 'Stopped'}")
-        
-        if self.no_esp32_mode:
-            print("  Simulated States:")
-            for esp_name, states in self.simulated_states.items():
-                print(f"    ESP32 {esp_name}: {states}")
-        elif self.esp32:
-            print("  Real ESP32 States:")
-            pin_states = self.esp32.get_esp32_pin_states()
-            for esp_name, states in pin_states.items():
-                print(f"    ESP32 {esp_name}: {states}")
-        print("=" * 40)
+        """調試狀態打印 - 向後兼容"""
+        # 移除詳細調試輸出，減少控制台冗餘信息
+        pass
     
     def cleanup(self):
         """清理資源"""

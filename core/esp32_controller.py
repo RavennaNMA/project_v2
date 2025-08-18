@@ -413,3 +413,26 @@ class ESP32Controller(QObject):
     def update_pin_state(self, pin, state):
         """更新pin狀態（兼容性方法）"""
         self.pin_states[pin] = state
+        
+    def test_all_connections(self):
+        """測試所有ESP32連接狀態"""
+        connections = {}
+        config = ESP32Config()
+        
+        for esp_name in config.esp32_configs.keys():
+            try:
+                # 嘗試連接測試
+                esp_config = config.esp32_configs[esp_name]
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)  # 2秒超時
+                
+                result = sock.connect_ex((esp_config['ip'], esp_config['port']))
+                connections[esp_name] = (result == 0)
+                
+                sock.close()
+                
+            except Exception as e:
+                print(f"ESP32 {esp_name} 連接測試失敗: {e}")
+                connections[esp_name] = False
+                
+        return connections

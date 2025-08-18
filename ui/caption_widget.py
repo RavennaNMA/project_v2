@@ -143,10 +143,7 @@ class CaptionWidget(QWidget):
         
     def show_bilingual_caption(self, tc_text, en_text, typing_speed=80):
         """顯示雙語字幕 - 優化版本"""
-        print(f"🌐 show_bilingual_caption 被調用:")
-        print(f"   中文長度: {len(tc_text)}")
-        print(f"   英文長度: {len(en_text)}")
-        print(f"   打字速度: {typing_speed}ms")
+        # show_bilingual_caption 被調用，移除詳細調試輸出
         
         self.is_bilingual_mode = True
         self.tc_text = tc_text
@@ -189,14 +186,8 @@ class CaptionWidget(QWidget):
     # 新增調試方法
     def debug_widget_state(self):
         """調試元件狀態"""
-        print(f"🔍 字幕元件調試信息:")
-        print(f"   可見: {self.isVisible()}")
-        print(f"   位置: {self.pos()}")
-        print(f"   大小: {self.size()}")
-        print(f"   父元件: {self.parent()}")
-        print(f"   計時器活動: {self.display_timer.isActive()}")
-        print(f"   顯示中: {self.is_showing}")
-        print(f"   當前文字長度: {len(self.current_text) if hasattr(self, 'current_text') else 0}")
+        # 移除詳細調試輸出，減少控制台冗餘信息
+        pass
         
     def enable_tts_sync(self, tts_text, tts_rate_wpm=140):
         """啟用TTS同步模式 - 簡化版本"""
@@ -298,7 +289,7 @@ class CaptionWidget(QWidget):
                 if target_index > self.current_index:
                     self.current_index = target_index
                     self.current_text = self.full_text[:self.current_index]
-                    print(f"  單語強制到: {self.current_index}/{len(self.full_text)}")
+                    # 單語強制完成
                     
                     if self.current_index >= len(self.full_text):
                         if not hasattr(self, '_typing_completed') or not self._typing_completed:
@@ -313,13 +304,7 @@ class CaptionWidget(QWidget):
         if not self.is_showing:
             return
         
-        # 調試輸出（第一次更新時）
-        if not hasattr(self, '_first_update_logged'):
-            self._first_update_logged = True
-            print(f"📝 字幕開始更新:")
-            print(f"   雙語模式: {self.is_bilingual_mode}")
-            print(f"   TTS同步: {self.tts_sync_enabled}")
-            print(f"   計時器間隔: {self.display_timer.interval()}ms")
+        # 字幕更新開始，移除詳細調試輸出
         
         # TTS同步模式
         if self.tts_sync_enabled:
@@ -1403,7 +1388,7 @@ class CaptionWidget(QWidget):
         if not self.tts_sync_enabled:
             return
             
-        print(f"🔍 檢查字幕完成狀態:")
+        # 檢查字幕完成狀態
         
         if self.is_bilingual_mode:
             # 雙語模式檢查
@@ -1412,8 +1397,7 @@ class CaptionWidget(QWidget):
             tc_completed = (hasattr(self, 'tc_text') and hasattr(self, 'tc_index') 
                            and self.tc_index >= len(self.tc_text))
             
-            print(f"   英文完成: {en_completed} ({self.en_index}/{len(self.en_text) if hasattr(self, 'en_text') else 0})")
-            print(f"   中文完成: {tc_completed} ({self.tc_index}/{len(self.tc_text) if hasattr(self, 'tc_text') else 0})")
+            # 雙語字幕完成狀態檢查
             
             # 強制完成未完成的語言
             if not en_completed and hasattr(self, 'en_text'):

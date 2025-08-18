@@ -1,12 +1,17 @@
 # Location: project_v2/ui/main_window.py
-# Usage: 主視窗，整合所有功能模組
+# Usage: 主視窗 - 改良版本（關鍵修改部分）
 
-from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QLabel, QGraphicsOpacityEffect, QApplication
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QRect
-from PyQt6.QtGui import QPainter, QPixmap, QFont, QFontDatabase, QCursor
 import os
 import cv2
+import gc
 import numpy as np
+from datetime import datetime
+from PyQt6.QtWidgets import QMainWindow, QWidget, QLabel, QVBoxLayout
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QPixmap, QImage, QFont, QPalette, QColor
+from PyQt6.QtCore import QPropertyAnimation, QRect, QEasingCurve
+from PyQt6.QtWidgets import QGraphicsOpacityEffect, QApplication
+from PyQt6.QtGui import QPainter, QFontDatabase, QCursor
 import time
 
 from core import StateMachine, SystemState, CameraManager, FaceDetector, ESP32Controller
@@ -15,11 +20,11 @@ from core.osc_controller import OSCController  # 新增OSC控制器
 from ui.detection_overlay import DetectionOverlay
 from ui.caption_widget import CaptionWidget
 from services import OllamaService, ImageService, TTSService
-from utils import ConfigLoader, FontManager
+from utils import ConfigLoader, AnimConfigLoader, FontManager
 
 
 class MainWindow(QMainWindow):
-    """主程式視窗"""
+    """主視窗 - 改良版本"""
     
     def __init__(self, startup_params):
         super().__init__()
@@ -46,30 +51,28 @@ class MainWindow(QMainWindow):
         
         print(f"視窗尺寸設定: {self.window_width}x{self.window_height} (縮放: {self.scale_factor})")
         
-        # 載入設定
-        self.config_loader = ConfigLoader()
-        self.config = self.config_loader.load_period_config()
-        self.weapon_config = self.config_loader.load_weapon_config()
-        
-        print(f"已載入 weapon_config.csv: {len(self.weapon_config)} 個武器")
-        if self.startup_params['no_llm_mode']:
-            print(f"No-LLM調試模式將使用以下武器配置:")
-            for weapon_id, info in self.weapon_config.items():
-                print(f"   武器{weapon_id}: {info['name']} (Pin: {info['pin']}, Image: {info['image_path']})")
-        
         # 初始化元件
-        self.init_components()
         self.setup_ui()
+        self.init_services()
         self.connect_signals()
+        
+        # 啟動記憶體管理
+        self.gc_timer = QTimer()
+        self.gc_timer.timeout.connect(self._perform_gc)
+        self.gc_timer.start(30000)  # 每30秒執行一次
         
         # 啟動系統 - 延遲啟動相機以避免黑屏
         QTimer.singleShot(100, self.start_system)
         
-    def init_components(self):
-        """初始化系統元件"""
-        from utils import AnimConfigLoader
+    def init_services(self):
+        """初始化服務"""
+        # 載入配置
+        self.config_loader = ConfigLoader()
+        self.config = self.config_loader.load_period_config()
+        self.weapon_config = self.config_loader.load_weapon_config()
         self.anim_config_loader = AnimConfigLoader()
         
+        # 初始化狀態機
         self.state_machine = StateMachine(self.config, self.anim_config_loader)
         self.camera_manager = CameraManager()
         self.face_detector = FaceDetector(self.config)
@@ -84,11 +87,11 @@ class MainWindow(QMainWindow):
         elif self.no_esp32_mode:
             print("無ESP32模式啟用 - 跳過硬體連接")
             
-        # OSC控制器
+        # OSC控制器 - 使用改良版本
         self.osc_controller = OSCController(self)
         self.osc_controller.start()
         
-        # 燈光控制器 (新版)
+        # 燈光控制器
         from core.ssr_controller import LightingController
         self.lighting_controller = LightingController(
             self.esp32_controller, 
@@ -99,28 +102,26 @@ class MainWindow(QMainWindow):
         # 兼容性別名
         self.ssr_controller = self.lighting_controller
         
-        # 連接燈光控制器信號到debug顯示
+        # 連接燈光控制器信號
         self.lighting_controller.status_changed.connect(self.on_lighting_status_changed)
-        self.lighting_controller.debug_message.connect(self.on_lighting_debug_message)
+        if hasattr(self.lighting_controller, 'debug_message'):
+            self.lighting_controller.debug_message.connect(self.on_lighting_debug_message)
         
         # 用於debug顯示的燈光指令記錄
         self.recent_light_commands = []
         
-        # 服務
+        # 服務 - 使用改良版本
         self.ollama_service = OllamaService()
         self.image_service = ImageService()
         
         tts_enabled = self.startup_params.get('tts_enabled', True)
         self.tts_service = TTSService(enabled=tts_enabled)
         
-        if self.tts_service.is_available():
-            print(f"TTS 服務已啟用")
-        
         # 狀態
         self.current_screenshot_path = None
         self.current_weapons = []
         self.weapon_display_index = 0
-        self.robot_mode = False  # 新增：機器人模式標記
+        self.robot_mode = False  # 機器人模式標記
         
         # 狀態完成追蹤
         self.caption_completed = False
@@ -177,6 +178,9 @@ class MainWindow(QMainWindow):
         self.camera_label = QLabel(self.central_widget)
         self.camera_label.resize(self.window_width, self.window_height)
         self.camera_label.setScaledContents(True)
+        self.camera_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.camera_label.setStyleSheet("background-color: black;")
+        self.camera_label.show()
         
         # 載入提示
         self.loading_label = QLabel("系統啟動中...", self.central_widget)
@@ -195,6 +199,9 @@ class MainWindow(QMainWindow):
         # 偵測動畫覆蓋層
         self.detection_overlay = DetectionOverlay(self.central_widget)
         self.detection_overlay.resize(self.window_width, self.window_height)
+        self.detection_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.detection_overlay.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.detection_overlay.setStyleSheet("background-color: transparent;")
         self.detection_overlay.hide()
         
         # 截圖顯示
@@ -325,6 +332,7 @@ class MainWindow(QMainWindow):
             self.ollama_service.load_normal_prompt()
             analysis_image_path = image_path
             
+        # 保留關鍵信息：開始LLM分析
         print(f"開始LLM分析: 超時設定 = {llm_timeout}秒, 模式 = {'機器人' if self.robot_mode else '正常'}")
         self.ollama_service.analyze_image(analysis_image_path, weapon_list, llm_timeout)
         
@@ -398,12 +406,17 @@ class MainWindow(QMainWindow):
         if state == SystemState.DETECTING:
             # 🔥 重新顯示攝影機即時畫面
             self.camera_label.show()
+            self.camera_label.lower()  # 確保相機在最底層
             
             # 隱藏其他覆蓋層
             self.screenshot_label.hide()
             self.caption_widget.hide()
             self.weapon_label.hide()
             self.black_overlay.hide()
+            
+            # 確保檢測覆蓋層透明且在合適位置
+            self.detection_overlay.show()
+            self.detection_overlay.raise_()
             
             # ESP32 C控制
             if not self.no_esp32_mode and self.esp32_controller:
@@ -412,9 +425,54 @@ class MainWindow(QMainWindow):
                 self.esp32_c_timer.stop()
                 self.esp32_c_timer.start(self.config.get('esp32_c_timeout', 10000))
                 
+        elif state == SystemState.LLM_LOADING:
+            # LLM_LOADING 狀態：在人類模式下保持檢測覆蓋層顯示並確保動畫持續運作
+            if not self.robot_mode:
+                # 人類模式：保持檢測覆蓋層顯示，確保 cal window 和 detect frame 動畫持續
+                self.detection_overlay.show()
+                self.detection_overlay.raise_()
+                
+                # 確保動畫不會在 LLM_LOADING 期間被提前停止
+                if hasattr(self.detection_overlay, 'window_effect'):
+                    # 重置消失狀態，確保 cal windows 保持活躍
+                    self.detection_overlay.window_effect.reset_fade_state()
+                    
+                # 確保攝影機畫面繼續顯示（作為動畫背景）
+                self.camera_label.show()
+                self.camera_label.lower()  # 確保相機在底層
+                
+                # Human mode: 保持偵測覆蓋層和動畫
+            else:
+                # 機器人模式：隱藏檢測覆蓋層
+                self.detection_overlay.clear_detections()
+                self.detection_overlay.hide()
+                # Robot mode: 隱藏偵測覆蓋層
+                
         elif state in [SystemState.CAPTION, SystemState.SPOTLIGHT, SystemState.IMG_SHOW]:
-            # 在這些狀態中清除檢測動畫
-            self.detection_overlay.clear_detections()
+            # 🔥 優化：CAPTION狀態的平滑過渡處理
+            if state == SystemState.CAPTION:
+                # CAPTION狀態：立即清除檢測動畫，但保持攝像頭畫面直到截圖淡入
+                print("🎬 進入CAPTION狀態 - 開始平滑過渡")
+                
+                # 立即清除檢測動畫效果
+                self.detection_overlay.clear_detections()
+                self.detection_overlay.hide()
+                
+                # 🔥 關鍵修改：不立即隱藏攝像頭畫面，讓它作為截圖淡入的背景
+                # self.camera_label.hide() - 移到 crossfade_to_screenshot 完成後
+                
+                # 確保字幕元件準備好顯示
+                if hasattr(self, 'caption_widget'):
+                    self.caption_widget.show()
+                    self.caption_widget.raise_()
+                    
+            else:
+                # SPOTLIGHT 和 IMG_SHOW 狀態：立即隱藏攝像頭畫面
+                self.camera_label.hide()
+                
+                # 清除檢測動畫  
+                self.detection_overlay.clear_detections()
+                self.detection_overlay.hide()
             
             if hasattr(self, 'debug_label') and self.debug_label.isVisible():
                 self.debug_label.raise_()
@@ -433,41 +491,45 @@ class MainWindow(QMainWindow):
         self.esp32_c_timer.stop()
         
     def reset_system(self):
-        """重置系統"""
-        print("System reset")
+        """重置系統 - 改良版本"""
+        print("系統重置")
         
-        # 重置機器人模式
-        self.robot_mode = False
+        # 清除狀態
+        self.current_screenshot_path = None
+        self.current_weapons = []
+        self.weapon_display_index = 0
+        self.robot_mode = False  # 重置機器人模式
         
-        # 🔥 重新顯示攝影機畫面
-        self.camera_label.show()
+        # 通知狀態機
+        self.state_machine.set_robot_mode(False)
         
         # 隱藏所有覆蓋層
-        self.detection_overlay.clear_detections()
         self.screenshot_label.hide()
         self.caption_widget.hide()
         self.weapon_label.hide()
         self.black_overlay.hide()
         
-        # 重置 cal windows fade 狀態
-        if hasattr(self.detection_overlay, 'window_effect'):
-            self.detection_overlay.window_effect.reset_fade_state()
-            print("重置 Cal Windows fade 狀態")
+        # 清除檢測動畫
+        self.detection_overlay.clear_detections()
         
-        # 清除狀態
-        self.current_screenshot_path = None
-        self.current_weapons = []
-        
-        # 重置狀態追蹤
+        # 重置完成狀態
         self.caption_completed = False
         self.tts_completed = True
         self.wait_timer_completed = False
         self.caption_displayed = False
         self.pending_caption_response = None
         
-        # 使用新的燈光控制器重置燈光
-        print("🔄 重置燈光系統")
+        # 停止所有動畫效果
+        if hasattr(self, 'screenshot_fade_animation') and self.screenshot_fade_animation:
+            self.screenshot_fade_animation.stop()
+            print("🎬 停止截圖淡入動畫")
+        
+        # 重置燈光系統
+        print("重置燈光系統")
         self.lighting_controller.reset_lighting()
+        
+        # 釋放記憶體
+        gc.collect()
     
     def on_lighting_status_changed(self, status):
         """處理燈光狀態變化"""
@@ -628,22 +690,24 @@ OSC: A={self.osc_controller.get_status()}"""
             self.debug_label.raise_()
             
     def process_frame(self, frame):
-        """處理相機畫面 - 恢復完整的裁切和檢測邏輯"""
+        """處理相機畫面 - 改良版本"""
         self.frame_count += 1
+        
+        # 確保相機畫面顯示
+        if not hasattr(self, 'first_frame_received'):
+            self.first_frame_received = False
+        if not self.first_frame_received:
+            self.first_frame_received = True
+            self.loading_label.hide()
+            self.camera_label.show()
+            # 收到第一個相機畫面
         
         # 更新全域幀計數（用於 cal windows 動畫）
         try:
             from ui.cal_windows_effect import update_global_frame_count
             update_global_frame_count()
         except ImportError:
-            pass  # 如果模組不可用，忽略錯誤
-        
-        # 隱藏載入提示
-        if not hasattr(self, 'first_frame_received'):
-            self.first_frame_received = False
-        if not self.first_frame_received:
-            self.first_frame_received = True
-            self.loading_label.hide()
+            pass
         
         cropped_frame = self.crop_frame_to_portrait_fast(frame)
         
@@ -660,17 +724,18 @@ OSC: A={self.osc_controller.get_status()}"""
                                      interpolation=cv2.INTER_LINEAR)  # 已經是最快的品質插值
 
         try:
-            # 🔧 修復：在裁切後的畫面上進行人臉檢測，而不是原始完整畫面
-            detection_result = self.face_detector.process_frame(cropped_frame)
             current_state = self.state_machine.current_state
-            
             faces = []
+            
+            # 🔧 修復：在所有狀態下都進行實時人臉檢測，讓偵測框能跟隨人臉移動
+            detection_result = self.face_detector.process_frame(cropped_frame)
+                
             if detection_result:
                 # 由於現在在裁切後的畫面上檢測，座標已經是正確的
                 # 只需要進行最終的縮放調整
                 adjusted_bbox = self.adjust_detection_coordinates_for_cropped_frame(
                     detection_result, cropped_frame.shape, target_width, target_height)
-                
+                    
                 if adjusted_bbox:
                     self.last_detection_bbox = adjusted_bbox
                     
@@ -678,20 +743,25 @@ OSC: A={self.osc_controller.get_status()}"""
                     if current_state == SystemState.DETECTING:
                         self.state_machine.update_face_detection(True)
                     
-                    if current_state not in [SystemState.CAPTION, SystemState.SPOTLIGHT, SystemState.IMG_SHOW]:
-                        # 從週期配置獲取底部偏移參數
+                    # 根據機器人模式決定是否顯示檢測框
+                    show_detection = True
+                    if self.robot_mode and current_state in [SystemState.LLM_LOADING]:
+                        show_detection = False  # 機器人模式下，LLM_LOADING不顯示檢測框
+                    
+                    # 在 DETECTING 和 LLM_LOADING（人類模式）狀態下顯示檢測框
+                    if show_detection and current_state in [SystemState.DETECTING, SystemState.LLM_LOADING]:
                         bottom_offset_ratio = self.config.get('detect_frame_bottom_offset', 0.2)
-                        
-                        # 將檢測框向上偏移（根據配置的底部偏移比例）
                         frame_offset_y = int(adjusted_bbox['height'] * bottom_offset_ratio)
                         adjusted_y = int(adjusted_bbox['y']) - frame_offset_y
-                        
-                        # 確保Y座標不會超出畫面邊界
                         adjusted_y = max(0, adjusted_y)
                         
                         face_rect = (int(adjusted_bbox['x']), adjusted_y, 
                                    int(adjusted_bbox['width']), int(adjusted_bbox['height']))
                         faces.append(face_rect)
+                        
+                        # LLM_LOADING 狀態下的即時檢測
+                        if current_state == SystemState.LLM_LOADING:
+                            pass  # 移除冗餘調試輸出
                 else:
                     self.last_detection_bbox = None
                     if current_state == SystemState.DETECTING:
@@ -710,20 +780,97 @@ OSC: A={self.osc_controller.get_status()}"""
                 if current_state == SystemState.DETECTING:
                     self.state_machine.update_face_detection(False)
         
-        # 按照參考代碼：在主循環中更新視覺矩形
-        if hasattr(self.detection_overlay, 'update_visual_rects_main_loop'):
-            self.detection_overlay.update_visual_rects_main_loop(faces)
+        # 更新視覺效果（根據機器人模式調整）
+        if self.robot_mode and current_state == SystemState.LLM_LOADING:
+            # 機器人模式下，LLM_LOADING時不顯示視覺效果
+            self.detection_overlay.clear_detections()
+        elif current_state in [SystemState.DETECTING, SystemState.LLM_LOADING]:
+            # DETECTING 狀態或 LLM_LOADING 狀態（人類模式）都要更新動畫
+            if hasattr(self.detection_overlay, 'update_visual_rects_main_loop'):
+                self.detection_overlay.update_visual_rects_main_loop(faces)
+                # LLM_LOADING 狀態下的動畫更新
+                if current_state == SystemState.LLM_LOADING and not self.robot_mode:
+                    pass  # 移除冗餘調試輸出
+            elif hasattr(self.detection_overlay, 'update_faces'):
+                self.detection_overlay.update_faces(faces)
+        elif current_state in [SystemState.CAPTION, SystemState.SPOTLIGHT, SystemState.IMG_SHOW]:
+            # 其他需要清除動畫的狀態
+            self.detection_overlay.clear_detections()
+        
+        # 嘗試使用 detection_overlay 繪製檢測框，如果失敗則使用原始畫面
+        try:
+            # 在 DETECTING 狀態，或者人類模式的 LLM_LOADING 狀態下都顯示動畫
+            should_show_animation = (
+                current_state == SystemState.DETECTING or 
+                (current_state == SystemState.LLM_LOADING and not self.robot_mode)
+            )
+            
+            if should_show_animation and hasattr(self.detection_overlay, 'draw_on_frame'):
+                display_frame = self.detection_overlay.draw_on_frame(cropped_frame.copy())
+                # LLM_LOADING 狀態下的動畫繪製
+                if current_state == SystemState.LLM_LOADING and not self.robot_mode:
+                    pass  # 移除冗餘調試輸出
+            else:
+                display_frame = cropped_frame.copy()
+                # LLM_LOADING 狀態下的動畫繪製失敗處理
+                if current_state == SystemState.LLM_LOADING and not self.robot_mode:
+                    pass  # 移除冗餘調試輸出
+        except Exception as e:
+            print(f"檢測覆蓋層繪製錯誤: {e}")
+            display_frame = cropped_frame.copy()
+        
+        # 轉換為QImage並顯示
+        rgb_image = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_image.shape
+        bytes_per_line = ch * w
+        qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+        
+        
+        
+        # 確保QImage有效
+        if not qt_image.isNull():
+            pixmap = QPixmap.fromImage(qt_image)
+            if not pixmap.isNull():
+                self.camera_label.setPixmap(pixmap)
+                self.camera_label.show()
+                
+                # 根據狀態決定相機畫面的顯示方式
+                current_state = self.state_machine.current_state
+                if current_state == SystemState.DETECTING:
+                    # 偵測狀態：顯示相機在底層，檢測覆蓋在上層
+                    self.camera_label.lower()
+                    self.camera_label.show()
+                    if hasattr(self, 'detection_overlay'):
+                        self.detection_overlay.raise_()
+                elif current_state == SystemState.LLM_LOADING:
+                    # LLM_LOADING 狀態：人類模式下顯示動畫，機器人模式下隱藏
+                    if not self.robot_mode:
+                        # 人類模式：顯示相機在底層，檢測覆蓋在上層
+                        self.camera_label.lower()
+                        self.camera_label.show()
+                        if hasattr(self, 'detection_overlay'):
+                            self.detection_overlay.show()
+                            self.detection_overlay.raise_()
+                    else:
+                        # 機器人模式：隱藏動畫
+                        self.camera_label.show()
+                        if hasattr(self, 'detection_overlay'):
+                            self.detection_overlay.hide()
+                elif current_state in [SystemState.CAPTION, SystemState.SPOTLIGHT, SystemState.IMG_SHOW]:
+                    # 字幕等狀態：隱藏實時相機畫面，讓截圖和字幕顯示
+                    self.camera_label.hide()
+                else:
+                    # 其他狀態：顯示相機畫面
+                    self.camera_label.show()
+                    self.camera_label.raise_()
+            else:
+                print("警告：QPixmap轉換失敗")
         else:
-            # 兼容性調用
-            self.detection_overlay.update_faces(faces)
+            print("警告：QImage轉換失敗")
         
-        # 在幀上繪製檢測框
-        final_frame = self.detection_overlay.draw_on_frame(cropped_frame)
-        
-        # 顯示畫面 - 使用正確的QImage轉換
-        qimage = CameraManager.frame_to_qimage(final_frame)
-        pixmap = QPixmap.fromImage(qimage)
-        self.camera_label.setPixmap(pixmap)
+        # 更新debug資訊
+        if self.startup_params['debug_mode']:
+            self.update_debug_info()
         
     def crop_frame_to_portrait_fast(self, frame):
         """FPS 優化：快速版本的豎屏裁切"""
@@ -856,17 +1003,16 @@ OSC: A={self.osc_controller.get_status()}"""
             
     def on_llm_complete(self, response):
         """AI 分析完成"""
-        print(f"LLM分析完成，回應類型: {type(response)}")
-        print(f"回應內容: {response}")
+        # 保留關鍵信息：LLM分析完成
+        print(f"LLM分析完成，直接進入CAPTION狀態 (模式: {'機器人' if self.robot_mode else '人類'})")
+        # 保留關鍵信息：LLM回應內容
+        print(f"LLM回應內容:{response}")
         print(f"當前狀態機狀態: {self.state_machine.current_state.value}")
         self.state_machine.on_llm_complete(response)
         
     def display_caption(self, response):
         """顯示字幕和截圖"""
-        print(f"display_caption 被調用:")
-        print(f"   回應類型: {type(response)}")
-        print(f"   回應內容: {response}")
-        print(f"   當前模式: {'No-LLM' if self.startup_params['no_llm_mode'] else 'Normal'}")
+        # display_caption 被調用，移除詳細調試輸出
         
         self.caption_displayed = True
         self.caption_completed = False
@@ -887,17 +1033,19 @@ OSC: A={self.osc_controller.get_status()}"""
             
     def on_caption_lighting_ready(self):
         """SSR1燈光準備完成，現在可以顯示字幕"""
-        print("=== SSR1 READY: Now displaying caption and screenshot ===")
+        print("💡 === SSR1 READY: Now displaying caption and screenshot ===")
+        print(f"   pending_caption_response 存在: {hasattr(self, 'pending_caption_response')}")
+        print(f"   pending_caption_response 內容: {getattr(self, 'pending_caption_response', None)}")
         
         if not hasattr(self, 'pending_caption_response') or not self.pending_caption_response:
-            print("沒有待處理的字幕回應")
+            print("⚠️ 沒有待處理的字幕回應")
             return
             
         response = self.pending_caption_response
         
-        # 🔥 清除偵測動畫但保留即時攝影機畫面作為背景
+        # 🔥 清除偵測動畫但保持攝影機畫面顯示，等待平滑過渡
         self.detection_overlay.clear_detections()
-        # 不隱藏 camera_label，讓截圖淡入顯示在其上方
+        # 🔧 修改：不立即隱藏相機畫面，讓它作為截圖淡入的背景
         
         # 🔥 顯示截圖（取代即時攝影機畫面）- 使用淡入效果
         if self.current_screenshot_path and os.path.exists(self.current_screenshot_path):
@@ -914,12 +1062,12 @@ OSC: A={self.osc_controller.get_status()}"""
                 # 🔧 清除任何樣式，保持純淨顯示
                 self.screenshot_label.setStyleSheet("")
                 
-                # 🔥 新增：使用淡入效果顯示截圖
+                # 🔥 修改：使用平滑交叉淡入效果，從攝像頭畫面過渡到截圖
                 screenshot_fade_duration = int(self.config.get('screenshot_fade_in', 1.0) * 1000)
-                print(f"📸 截圖將以 {screenshot_fade_duration}ms 淡入效果顯示")
-                self.fade_in_widget(self.screenshot_label, screenshot_fade_duration)
+                print(f"📸 截圖將以 {screenshot_fade_duration}ms 平滑交叉淡入效果顯示")
+                self.crossfade_to_screenshot(screenshot_fade_duration)
                 
-                print("📸 截圖設置完成（含淡入效果）")
+                print("📸 截圖設置完成（含平滑交叉淡入效果）")
             else:
                 print("❌ QPixmap 載入失敗，圖片可能損壞")
         else:
@@ -962,11 +1110,12 @@ OSC: A={self.osc_controller.get_status()}"""
             elif not caption_en:
                 tts_skip_reason = "無英文字幕"
                 
-            # 配置字幕打字效果
-            # 🔥 機器人模式下即使no_llm_mode為True也要啟用TTS
+            # 配置字幕打字效果 - 統一：機器人模式和人類模式都使用相同的TTS同步
+            # 🔥 機器人模式下即使no_llm_mode為True也要啟用TTS同步
             should_enable_tts = tts_enabled and caption_en and hasattr(self, 'tts_service') and (not no_llm_mode or robot_mode_override)
+            
             if should_enable_tts:
-                # TTS模式：字幕與語音同步
+                # TTS同步模式：字幕與語音同步（人類模式和機器人模式統一）
                 print("啟用TTS同步字幕顯示")
                 self.caption_widget.enable_tts_sync(caption_en)
                 
@@ -984,6 +1133,7 @@ OSC: A={self.osc_controller.get_status()}"""
                 self.tts_timeout_timer.start(int(timeout_duration * 1000))
                 
                 # 啟動TTS
+                print(f"🎤 調用 TTS speak_text: '{caption_en[:50]}...'")
                 self.tts_service.speak_text(caption_en)
             else:
                 if robot_mode_override and no_llm_mode:
@@ -1006,6 +1156,7 @@ OSC: A={self.osc_controller.get_status()}"""
             
             # 顯示字幕
             if caption_tc and caption_en:
+                # 保留關鍵信息：雙語字幕顯示
                 print(" 顯示雙語字幕")
                 self.caption_widget.is_bilingual_mode = True  # 強制重置
                 print(f"主程式呼叫 show_bilingual_caption, typing_speed={typing_speed}")
@@ -1102,14 +1253,18 @@ OSC: A={self.osc_controller.get_status()}"""
     def on_tts_error(self, error):
         """TTS錯誤處理"""
         print(f"TTS錯誤: {error}")
-        self.on_tts_finished()
+        # 不要重複調用 on_tts_finished()，因為TTS服務已經會發送 tts_finished 信號
+        self.tts_completed = True
+        if hasattr(self, 'tts_timeout_timer'):
+            self.tts_timeout_timer.stop()
+        self.check_caption_completion()
         
     def on_tts_progress(self, progress):
         """TTS播放進度"""
         pass
         
-    def on_tts_word_progress(self, word, index, total):
-        """TTS單詞進度"""
+    def on_tts_word_progress(self, current_chunk):
+        """TTS文字片段進度"""
         pass
         
     def on_cal_window_fade_requested(self):
@@ -1130,8 +1285,8 @@ OSC: A={self.osc_controller.get_status()}"""
     def on_spotlight_ready(self):
         """聚光燈準備完成"""
         print("Spotlight ready")
-        if hasattr(self.state_machine, 'on_spotlight_ready'):
-            self.state_machine.on_spotlight_ready()
+        if hasattr(self.state_machine, 'on_spotlight_complete'):
+            self.state_machine.on_spotlight_complete()
             
     def show_weapon_image(self, weapon_info):
         """顯示武器圖片"""
@@ -1169,6 +1324,33 @@ OSC: A={self.osc_controller.get_status()}"""
             print(f"   當前工作目錄: {os.getcwd()}")
             print(f"   完整路徑: {os.path.abspath(image_path)}")
             
+    def crossfade_to_screenshot(self, duration=1000):
+        """從攝像頭畫面平滑交叉淡入到截圖"""
+        # 設置截圖的透明度效果
+        effect = QGraphicsOpacityEffect()
+        self.screenshot_label.setGraphicsEffect(effect)
+        self.screenshot_label.show()  # 顯示截圖，但透明度為0
+        
+        # 創建淡入動畫
+        self.screenshot_fade_animation = QPropertyAnimation(effect, b"opacity")
+        self.screenshot_fade_animation.setDuration(duration)
+        self.screenshot_fade_animation.setStartValue(0)  # 從完全透明開始
+        self.screenshot_fade_animation.setEndValue(1)    # 到完全不透明
+        self.screenshot_fade_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        
+        # 當淡入完成時，隱藏攝像頭畫面以節省資源
+        self.screenshot_fade_animation.finished.connect(self._on_screenshot_fade_complete)
+        
+        # 開始淡入動畫
+        self.screenshot_fade_animation.start()
+        print(f"🎬 開始平滑交叉淡入動畫，持續時間: {duration}ms")
+        
+    def _on_screenshot_fade_complete(self):
+        """截圖淡入完成後的回調"""
+        # 現在可以安全地隱藏攝像頭畫面，因為截圖已經完全顯示
+        self.camera_label.hide()
+        print("🎬 交叉淡入完成，已隱藏攝像頭畫面")
+
     def fade_in_widget(self, widget, duration=None):
         """淡入效果"""
         if duration is None:
@@ -1211,34 +1393,63 @@ OSC: A={self.osc_controller.get_status()}"""
         if self.startup_params['debug_mode']:
             self.update_debug_info()
             
+    def _perform_gc(self):
+        """定期執行垃圾回收"""
+        collected = gc.collect()
+        if collected > 0:
+            print(f"MainWindow GC: Collected {collected} objects")
+            
     def start_system(self):
         """啟動系統"""
         self.state_machine.set_no_llm_mode(self.startup_params['no_llm_mode'])
         
         camera_index = self.startup_params.get('camera_index', 0)
+        print(f"啟動相機，索引: {camera_index}")
+        
+        # 確保在啟動時相機顯示正確
+        self.camera_label.lower()
+        self.camera_label.show()
+        
         self.camera_manager.start(camera_index)
         
         self.first_frame_received = False
         self.state_machine.start()
         
     def closeEvent(self, event):
-        """關閉事件"""
+        """關閉事件 - 改良版本"""
+        print("正在關閉系統...")
+        
+        # 停止計時器
+        if hasattr(self, 'gc_timer'):
+            self.gc_timer.stop()
+            
+        # 停止狀態機
         self.state_machine.stop()
+        
+        # 停止相機
         self.camera_manager.stop()
+        
+        # 釋放人臉偵測器
         self.face_detector.release()
         
+        # 斷開ESP32
         if self.esp32_controller:
             self.esp32_controller.disconnect()
         
+        # 清理SSR控制器
         if hasattr(self, 'ssr_controller'):
             self.ssr_controller.cleanup()
         
+        # 關閉TTS服務
         if hasattr(self, 'tts_service'):
             print("Shutting down TTS service...")
             self.tts_service.shutdown()
             
+        # 停止OSC控制器
         if hasattr(self, 'osc_controller'):
             self.osc_controller.stop()
             
+        # 最後的記憶體清理
+        gc.collect()
+        
         event.accept()
-

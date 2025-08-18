@@ -1,24 +1,25 @@
 # Location: project_v2/core/osc_controller.py
-# Usage: OSC通訊控制器
+# Usage: OSC通訊控制器 - 改良版本，使用新的訊息格式
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from pythonosc import dispatcher, osc_server, udp_client
 import threading
 import time
+import gc
 
 
 class OSCConfig:
     """OSC配置"""
     # A電腦（本系統）
-    A_IP = "10.254.26.213"
+    A_IP = "192.168.0.62"
     A_PORT = 7000
     
     # B電腦（發送robot指令）
-    B_IP = "10.254.26.144"
+    B_IP = "10.254.26.146"
     B_PORT = 7001
     
     # C電腦（接收燈光控制）
-    C_IP = "10.254.26.146"
+    C_IP = "192.168.0.64"
     C_PORT = 7002
 
 
@@ -52,6 +53,9 @@ class OSCThread(QThread):
             self.server.serve_forever()
         except Exception as e:
             print(f"OSC Server error: {e}")
+        finally:
+            # 釋放記憶體
+            gc.collect()
             
     def handle_robot_arrive(self, address, *args):
         """處理機器人到達訊息"""
@@ -71,7 +75,7 @@ class OSCThread(QThread):
             
 
 class OSCController(QObject):
-    """OSC控制器"""
+    """OSC控制器 - 改良版本"""
     
     def __init__(self, main_window):
         super().__init__()
@@ -106,6 +110,8 @@ class OSCController(QObject):
             self.server_thread.stop()
             self.server_thread.wait(2000)
         print("OSC Controller stopped")
+        # 釋放記憶體
+        gc.collect()
         
     def on_robot_arrive(self):
         """處理機器人到達事件"""
@@ -118,21 +124,25 @@ class OSCController(QObject):
         print(f"OSC message: {address} = {args}")
         
     def send_light_command(self, light_num, state):
-        """發送燈光控制命令
+        """發送燈光控制命令 - 使用新格式
+        
+        新格式: /light <num> <state>
+        例如: /light 1 1 (開啟第1盞燈)
+             /light 1 0 (關閉第1盞燈)
         
         Args:
             light_num: 燈光編號 1-13
-            state: True=開燈, False=關燈
+            state: True=開燈(1), False=關燈(0)
         """
         if 1 <= light_num <= 13:
-            if state:
-                command = f"/lighton{light_num:02d}"
-            else:
-                command = f"/lightoff{light_num:02d}"
-                
+            # 使用新的訊息格式
+            state_value = 1 if state else 0
+            command = "/light"
+            args = [light_num, state_value]
+            
             try:
-                self.client_c.send_message(command, [])
-                print(f"OSC sent to C: {command}")
+                self.client_c.send_message(command, args)
+                print(f"OSC sent to C: {command} {light_num} {state_value}")
             except Exception as e:
                 print(f"OSC send error: {e}")
                 

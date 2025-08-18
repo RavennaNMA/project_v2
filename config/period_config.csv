@@ -6,7 +6,7 @@
 偵測框：底部偏移,detect_frame_bottom_offset,0.1,檢測框架底部向下偏移的比例（相對於框架高度）
 偵測：最小臉部尺寸,min_face_area_ratio,0.001,最小臉部面積比例（適合廣角攝像頭）
 LLM 回應最大等待時間,llm_response_timeout,15,等待AI回應的最長時間
-淡入時間,screenshot_fade_in,1,截圖淡入效果時間
+淡入時間,screenshot_fade_in,0.5,截圖淡入效果時間
 停留時間,screenshot_display,5,截圖持續顯示時間
 淡出時間,screenshot_fade_out,1,截圖淡出效果時間
 打字速度（毫秒/字）,caption_typing_speed,50,字幕打字機效果速度

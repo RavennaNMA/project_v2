@@ -159,6 +159,7 @@ class KokoroTTSWorker(QThread):
         if filtered_text and filtered_text.strip():
             # 在文字前添加特殊標記來傳遞原始長度信息
             text_with_length = f"ORIGINAL_LENGTH:{original_length}|{filtered_text.strip()}"
+            # 添加文字到TTS佇列
             self.text_queue.put(text_with_length)
     
     def clear_queue(self):
@@ -205,7 +206,7 @@ class KokoroTTSWorker(QThread):
                 self.text_length = original_text_length if original_text_length else len(text)
                 self.current_position = 0
                 
-                print(f"TTS進度基準: 實際文字長度={len(text)}, 進度計算基準={self.text_length}")
+                # TTS進度基準設定完成
                 
                 # 開始語音合成
                 self.tts_started.emit()
@@ -221,11 +222,9 @@ class KokoroTTSWorker(QThread):
                 if self.current_position < self.text_length:
                     self.current_position = self.text_length
                     self.tts_progress.emit(self.current_position, self.text_length)
-                    print(f"TTS完成前修正進度: {self.current_position}/{self.text_length} (100%)")
                 
                 # 語音結束
                 self.is_speaking = False
-                print(f"🎯 TTS播放完成，發送完成信號")
                 self.tts_finished.emit()
                 
             except queue.Empty:
@@ -234,7 +233,6 @@ class KokoroTTSWorker(QThread):
                 self.tts_error.emit(f"語音合成錯誤: {e}")
                 self.is_speaking = False
                 # 錯誤時也要發送完成信號，避免系統卡住
-                print(f"⚠️ TTS錯誤，發送完成信號避免卡住")
                 self.tts_finished.emit()
     
     def _synthesize_realtime(self, text):
@@ -291,7 +289,6 @@ class KokoroTTSWorker(QThread):
                 if progress > self.current_position:
                     self.current_position = progress
                     self.tts_progress.emit(progress, self.text_length)
-                    print(f" 片段完成: {chunk[:20]}... 進度: {progress}/{self.text_length} ({filtered_progress_ratio*100:.1f}%)")
                 
                 # 💪 確保字幕完成顯示 - 大幅減少重複發送
                 self.tts_progress.emit(progress, self.text_length)
@@ -694,7 +691,7 @@ class KokoroTTSWorker(QThread):
             play_start_time = time.time()
             sound.play()
             
-            print(f"🎵 播放片段: 位置{chunk_start_pos}-{chunk_start_pos + chunk_length}, 時長{estimated_duration:.2f}s")
+            # 播放片段音頻
             
             # 動態更新頻率 - 接近結尾時更頻繁更新，修復短詞延遲
             base_update_interval = 0.016  # 基礎60fps更新頻率
@@ -758,7 +755,6 @@ class KokoroTTSWorker(QThread):
                     # 強制完成這個片段
                     self.current_position = chunk_start_pos + chunk_length
                     self.tts_progress.emit(self.current_position, self.text_length)
-                    print(f"🔧 強制完成片段 (片段內部{progress_ratio*100:.1f}%@{timeout_threshold*1000:.0f}ms): {chunk_start_pos}-{chunk_start_pos + chunk_length}")
                     break
                 
                 # 動態調整更新頻率 - 接近結尾時更頻繁
@@ -779,11 +775,10 @@ class KokoroTTSWorker(QThread):
             elapsed_time = current_time - play_start_time
             chunk_progress_ratio = min(elapsed_time / estimated_duration, 1.0) if estimated_duration > 0 else 1.0
             
-            # 🎯 每個片段96%完成就強制至片段末尾 - 配合字幕同步設定
-            if chunk_progress_ratio > 0.96:  # 💪 與字幕96%強制完成保持一致！
+            # 每個片段96%完成就強制至片段末尾
+            if chunk_progress_ratio > 0.96:
                 # 直接跳到片段結束
                 final_pos = chunk_start_pos + chunk_length
-                print(f"🎯 片段內部96%+完成，強制至片段末尾: {final_pos}")
             else:
                 # 正常計算片段末尾位置
                 final_pos = chunk_start_pos + chunk_length
@@ -800,10 +795,8 @@ class KokoroTTSWorker(QThread):
             if mapped_final_pos > self.current_position:
                 self.current_position = mapped_final_pos
                 
-                # 立即發送片段完成信號 - 減少重複發送，提高響應速度
+                # 立即發送片段完成信號
                 self.tts_progress.emit(self.current_position, self.text_length)
-                        
-                print(f"📍 片段結束進度修正: {self.current_position}/{self.text_length} (片段進度:{chunk_progress_ratio:.3f})")
             
             # 最小等待確保播放完全停止 - 進一步減少句號處延遲
             time.sleep(0.01)  # 從40ms減少到10ms，修復句號處卡頓
@@ -827,6 +820,13 @@ class TTSService(QObject):
         self.enabled = enabled
         self.worker = None
         self.config = config_loader if config_loader else TTSConfigLoader()
+        
+        # 🔥 新增：防重複播放機制
+        self.last_spoken_text = ""
+        self.is_currently_speaking = False
+        self.speak_cooldown_timer = QTimer()
+        self.speak_cooldown_timer.setSingleShot(True)
+        self.speak_cooldown_timer.timeout.connect(self._reset_speaking_state)
         
         if self.enabled:
             self.init_worker()
@@ -857,10 +857,25 @@ class TTSService(QObject):
         if not self.enabled or not self.worker:
             return
         
+        # 防重複播放檢查
+        if self.is_currently_speaking:
+            return
+            
         # 過濾並處理文字
         filtered_text = self.filter_english_text(text)
+        
+        # 檢查是否與上次播放的文字相同
+        if filtered_text == self.last_spoken_text:
+            return
+        
         if filtered_text:
-            # 💪 修復進度計算：同時傳遞原始文字長度和過濾後文字
+            # 記錄當前播放的文字並設置狀態
+            self.last_spoken_text = filtered_text
+            self.is_currently_speaking = True
+            
+            # 清空現有佇列，確保只播放最新的文字
+            self.worker.clear_queue()
+            
             self.worker.add_text_with_original_length(filtered_text, len(text))
     
     def filter_english_text(self, text):
@@ -882,8 +897,12 @@ class TTSService(QObject):
     
     def stop_speaking(self):
         """停止語音"""
+        print("🛑 TTSService: 停止語音播放")
         if self.worker:
             self.worker.stop_current()
+        # 🔥 停止時重置狀態
+        self._reset_speaking_state()
+        self.speak_cooldown_timer.stop()
     
     def clear_queue(self):
         """清空語音佇列"""
@@ -892,16 +911,28 @@ class TTSService(QObject):
     
     def on_tts_started(self):
         """TTS 開始事件"""
+        print("🎵 TTSService: TTS 開始播放")
+        self.is_currently_speaking = True
         self.tts_started.emit()
     
     def on_tts_finished(self):
         """TTS 結束事件"""
+        print("🎵 TTSService: TTS 播放完成")
+        # 🔥 設置冷卻時間，防止立即重複播放
+        self.speak_cooldown_timer.start(500)  # 500ms 冷卻時間
         self.tts_finished.emit()
     
     def on_tts_error(self, error_msg):
         """TTS 錯誤事件"""
         print(f"TTS 錯誤: {error_msg}")
+        # 🔥 錯誤時也要重置狀態
+        self._reset_speaking_state()
         self.tts_error.emit(error_msg)
+    
+    def _reset_speaking_state(self):
+        """重置播放狀態"""
+        print("🔄 TTSService: 重置播放狀態")
+        self.is_currently_speaking = False
     
     def on_tts_progress(self, current_pos, total_len):
         """TTS 進度事件"""
@@ -929,6 +960,11 @@ class TTSService(QObject):
     
     def shutdown(self):
         """關閉 TTS 服務"""
+        print("🔌 TTSService: 關閉 TTS 服務")
+        # 🔥 關閉時停止計時器
+        if hasattr(self, 'speak_cooldown_timer'):
+            self.speak_cooldown_timer.stop()
+        
         if self.worker:
             self.worker.shutdown()
             self.worker.wait(3000)  # 等待最多 3 秒

@@ -31,7 +31,7 @@ class ConfigLoader(QObject):
                     default_value = float(row['預設值'])
                     self.period_config[param_name] = default_value
                     
-            print(f"載入時間設定: {len(self.period_config)} 項")
+            # 載入時間設定完成，移除冗餘調試輸出
             return self.period_config
             
         except Exception as e:
@@ -93,7 +93,7 @@ class ConfigLoader(QObject):
                         'image_fade_out': image_fade_out
                     }
                     
-            print(f"載入武器設定: {len(self.weapon_config)} 項")
+            # 載入武器設定完成，移除冗餘調試輸出
             return self.weapon_config
             
         except Exception as e:
@@ -141,7 +141,7 @@ class ConfigLoader(QObject):
                         # 字串值（字幕內容）
                         self.debug_config[param_name] = value
                     
-            print(f"載入調試設定: {len(self.debug_config)} 項")
+            # 載入調試設定完成，移除冗餘調試輸出
             return self.debug_config
             
         except Exception as e:

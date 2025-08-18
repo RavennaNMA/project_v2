@@ -39,7 +39,7 @@ class LightingController(QObject):
             # ESP32 B: 1-13 全部開啟 (HIGH)
             for i, pin in enumerate(self.all_esp32b_pins, 1):
                 self.esp32.set_esp32_pin_state('B', pin, 'HIGH', 0)
-                self.status_changed.emit(f"lighton{i:02d}")
+                self.status_changed.emit(f"/light {i} 1")
                 
             # ESP32 C: G4 開啟 (HIGH)
             self.esp32.set_esp32_pin_state('C', 4, 'HIGH', 0)
@@ -94,7 +94,7 @@ class LightingController(QObject):
             # ESP32 B: 對應武器燈光
             weapon_pin = self.weapon_light_pins[weapon_num - 1]
             self.esp32.set_esp32_pin_state('B', weapon_pin, 'HIGH', 0)
-            self.status_changed.emit(f"lighton{weapon_num:02d}")
+            self.status_changed.emit(f"/light {weapon_num} 1")
             
             # OSC: 對應燈光
             if self.osc_controller:
@@ -104,7 +104,7 @@ class LightingController(QObject):
             if weapon_id in ['05', '06', '07']:
                 print(f"🔥 電磁砲 {weapon_num}: 同時啟動wall light")
                 self.esp32.set_esp32_pin_state('B', self.wall_light_pin, 'HIGH', 0)
-                self.status_changed.emit("lighton13")
+                self.status_changed.emit("/light 13 1")
                 if self.osc_controller:
                     self.osc_controller.send_light_command(13, True)
                 
@@ -132,7 +132,7 @@ class LightingController(QObject):
         
         if self.esp32:
             self.esp32.set_esp32_pin_state('B', self.wall_light_pin, 'LOW', 0)
-            self.status_changed.emit("lightoff13")
+            self.status_changed.emit("/light 13 0")
             
             if self.osc_controller:
                 self.osc_controller.send_light_command(13, False)

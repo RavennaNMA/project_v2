@@ -1,9 +1,10 @@
 # Location: project_v2/core/state_machine.py
-# Usage: 狀態機管理系統，控制整體流程
+# Usage: 狀態機管理系統，控制整體流程 - 改良版本
 
 from enum import Enum
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 import time
+import gc
 
 
 class SystemState(Enum):
@@ -14,13 +15,13 @@ class SystemState(Enum):
     CAL_WINDOW_FADE = "CAL_WINDOW_FADE"  # Cal Window 消失狀態
     DETECT_FRAME_FADE = "DETECT_FRAME_FADE"  # Detect Frame 消失狀態
     CAPTION = "CAPTION"
-    SPOTLIGHT = "SPOTLIGHT"  # 新增聚光燈狀態
+    SPOTLIGHT = "SPOTLIGHT"  # 聚光燈狀態
     IMG_SHOW = "IMG_SHOW"
     RESET = "RESET"
 
 
 class StateMachine(QObject):
-    """狀態機控制器"""
+    """狀態機控制器 - 改良版本"""
     
     # 狀態變更信號
     state_changed = pyqtSignal(SystemState)
@@ -31,31 +32,42 @@ class StateMachine(QObject):
     cal_window_fade_requested = pyqtSignal()  # Cal Window 消失信號
     detect_frame_fade_requested = pyqtSignal()  # Detect Frame 消失信號
     caption_display_requested = pyqtSignal(dict)  # AI 回應
-    spotlight_requested = pyqtSignal()  # 新增聚光燈信號
+    spotlight_requested = pyqtSignal()  # 聚光燈信號
     weapon_display_requested = pyqtSignal(list)  # 武器列表
     reset_requested = pyqtSignal()
     
-    # 🔥 新增：狀態相關燈光控制信號
+    # 狀態相關燈光控制信號
     state_lighting_requested = pyqtSignal(str)  # 狀態名稱
     
     def __init__(self, config, config_loader=None):
         super().__init__()
         self.config = config
-        self.config_loader = config_loader  # 💡 新增：配置載入器引用
+        self.config_loader = config_loader
         self.current_state = SystemState.DETECTING
         self.detection_start_time = None
         self.face_detected = False
         self.no_llm_mode = False
         self.pending_weapons = []  # 暫存武器列表
         self.pending_llm_response = None  # 暫存 LLM 回應
+        self.robot_mode = False  # 機器人模式標記
         
         # 計時器
         self.state_timer = QTimer()
         self.state_timer.timeout.connect(self._handle_state_timeout)
         
+        # 記憶體管理計時器
+        self.gc_timer = QTimer()
+        self.gc_timer.timeout.connect(self._perform_gc)
+        self.gc_timer.start(60000)  # 每60秒執行一次垃圾回收
+        
     def set_no_llm_mode(self, enabled):
         """設定 No LLM 模式"""
         self.no_llm_mode = enabled
+        
+    def set_robot_mode(self, enabled):
+        """設定機器人模式"""
+        self.robot_mode = enabled
+        print(f"State Machine: Robot mode = {enabled}")
         
     def start(self):
         """啟動狀態機"""
@@ -64,6 +76,8 @@ class StateMachine(QObject):
     def stop(self):
         """停止狀態機"""
         self.state_timer.stop()
+        self.gc_timer.stop()
+        gc.collect()
         
     def transition_to(self, new_state):
         """狀態轉換"""
@@ -73,173 +87,168 @@ class StateMachine(QObject):
         
         # 發送狀態變更信號
         self.state_changed.emit(new_state)
+        self.state_lighting_requested.emit(new_state.value)
         
-        # 處理新狀態
-        self._enter_state(new_state)
-        
-    def _enter_state(self, state):
-        """進入新狀態的處理"""
-        # 🔥 每次狀態變更都發送燈光控制信號
-        self.state_lighting_requested.emit(state.value)
-        
-        if state == SystemState.DETECTING:
-            # 重置偵測
-            self.detection_start_time = None
-            self.face_detected = False
-            self.pending_weapons = []
+        # 根據狀態執行對應動作
+        if new_state == SystemState.DETECTING:
+            self._enter_detecting()
+        elif new_state == SystemState.SCREENSHOT_TRIGGER:
+            self._enter_screenshot_trigger()
+        elif new_state == SystemState.LLM_LOADING:
+            self._enter_llm_loading()
+        elif new_state == SystemState.CAL_WINDOW_FADE:
+            self._enter_cal_window_fade()
+        elif new_state == SystemState.DETECT_FRAME_FADE:
+            self._enter_detect_frame_fade()
+        elif new_state == SystemState.CAPTION:
+            self._enter_caption()
+        elif new_state == SystemState.SPOTLIGHT:
+            self._enter_spotlight()
+        elif new_state == SystemState.IMG_SHOW:
+            self._enter_img_show()
+        elif new_state == SystemState.RESET:
+            self._enter_reset()
             
-        elif state == SystemState.SCREENSHOT_TRIGGER:
-            # 觸發截圖
-            self.screenshot_requested.emit()
-            # 直接轉到下一狀態
-            if self.no_llm_mode:
-                # 💡 No LLM 模式：使用可配置的調試回應
-                if self.config_loader:
-                    debug_response = self.config_loader.get_debug_response()
-                    print(f"🔧 State Machine Debug Mode:")
-                    print(f"   武器: {debug_response.get('weapons', [])}")
-                else:
-                    # 備用硬編碼回應
-                    debug_response = {
-                        'caption': 'Emergency defense protocol activated.',
-                        'caption_tc': '緊急防禦協議啟動。',
-                        'weapons': ['01', '02']
-                    }
-                
-                # 💡 修復：No-LLM模式下也要設置pending_weapons
-                self.pending_weapons = debug_response.get('weapons', [])
-                print(f"🔧 No-LLM Mode: 設置pending_weapons = {self.pending_weapons}")
-                    
-                self.transition_to(SystemState.CAPTION)
-                self.caption_display_requested.emit(debug_response)
-            else:
-                self.transition_to(SystemState.LLM_LOADING)
-                
-        elif state == SystemState.LLM_LOADING:
-            # 等待 AI 分析完成
-            pass
+    def _enter_detecting(self):
+        """進入偵測狀態"""
+        self.detection_start_time = None
+        self.face_detected = False
+        self.robot_mode = False  # 重置機器人模式
+        # 釋放記憶體
+        gc.collect()
+        
+    def _enter_screenshot_trigger(self):
+        """進入截圖觸發狀態"""
+        self.screenshot_requested.emit()
+        self.transition_to(SystemState.LLM_LOADING)
+        
+    def _enter_llm_loading(self):
+        """進入 LLM 載入狀態"""
+        # 在機器人模式下，跳過視覺效果，直接進入字幕狀態
+        if self.robot_mode:
+            print("Robot mode: Skipping visual effects in LLM_LOADING")
+            # 不顯示 cal window 和 detect frame
+            # 直接等待 LLM 完成
+        else:
+            # Human mode: 保持原有的視覺效果，延長動畫顯示時間
+            print("Human mode: Keeping visual effects active during LLM_LOADING")
+            # 設置一個較長的 LLM 載入顯示時間，讓動畫持續運作
+            # 這個時間會在 LLM 實際完成時被覆蓋
             
-        elif state == SystemState.CAL_WINDOW_FADE:
-            # Cal Window 消失狀態
+    def _enter_cal_window_fade(self):
+        """進入 Cal Window 消失狀態"""
+        # 機器人模式下跳過
+        if self.robot_mode:
+            self.transition_to(SystemState.DETECT_FRAME_FADE)
+        else:
             self.cal_window_fade_requested.emit()
-            # 從配置讀取 fade frames
-            if self.config_loader:
-                fade_frames = self.config_loader.get_int('BASIC', 'cal_window_fade_frames', 200)
-            else:
-                fade_frames = 200  # 默認值
-            print(f"🎭 Cal Window Fade: 等待 {fade_frames} 幀")
-            self.state_timer.start(fade_frames * 16)  # 假設 60fps，16ms 每幀
-            
-        elif state == SystemState.DETECT_FRAME_FADE:
-            # Detect Frame 消失狀態
+            self.state_timer.start(int(self.config.get('cal_window_fade_time', 1) * 1000))
+        
+    def _enter_detect_frame_fade(self):
+        """進入 Detect Frame 消失狀態"""
+        # 機器人模式下跳過
+        if self.robot_mode:
+            self.transition_to(SystemState.CAPTION)
+        else:
             self.detect_frame_fade_requested.emit()
-            # 從配置讀取 fade frames
-            if self.config_loader:
-                fade_frames = self.config_loader.get_int('BASIC', 'detect_frame_fade_frames', 400)
-            else:
-                fade_frames = 400  # 默認值
-            print(f"🎭 Detect Frame Fade: 等待 {fade_frames} 幀")
-            self.state_timer.start(fade_frames * 16)  # 假設 60fps，16ms 每幀
+            self.state_timer.start(int(self.config.get('detect_frame_fade_time', 1) * 1000))
+        
+    def _enter_caption(self):
+        """進入字幕顯示狀態"""
+        if self.pending_llm_response:
+            self.caption_display_requested.emit(self.pending_llm_response)
+            self.pending_llm_response = None
             
-        elif state == SystemState.CAPTION:
-            # 字幕顯示不使用計時器，等待完成信號
-            pass
-            
-        elif state == SystemState.SPOTLIGHT:
-            # 聚光燈狀態
-            self.spotlight_requested.emit()
-            # Spotlight狀態不需要計時器，由SSR控制器決定何時進入下一狀態
-            
-        elif state == SystemState.IMG_SHOW:
-            # 武器展示會由 weapon display 控制時間
-            pass
-            
-        elif state == SystemState.RESET:
-            # 重置並等待冷卻
-            self.reset_requested.emit()
-            cooldown = self.config.get('cooldown_time', 3.0) * 1000
-            self.state_timer.start(int(cooldown))
-            
+    def _enter_spotlight(self):
+        """進入聚光燈狀態"""
+        self.spotlight_requested.emit()
+        
+    def _enter_img_show(self):
+        """進入武器顯示狀態"""
+        self.weapon_display_requested.emit(self.pending_weapons)
+        self.pending_weapons = []
+        
+    def _enter_reset(self):
+        """進入重置狀態"""
+        self.reset_requested.emit()
+        # 重置後釋放記憶體
+        gc.collect()
+        # 等待冷卻時間
+        cooldown = int(self.config.get('cooldown_time', 5) * 1000)
+        self.state_timer.start(cooldown)
+        
     def _handle_state_timeout(self):
         """處理狀態超時"""
-        self.state_timer.stop()
-        
-        if self.current_state == SystemState.CAL_WINDOW_FADE:
-            # Cal Window 消失完成，進入 Detect Frame 消失狀態
-            self.transition_to(SystemState.DETECT_FRAME_FADE)
-            
-        elif self.current_state == SystemState.DETECT_FRAME_FADE:
-            # Detect Frame 消失完成，進入字幕狀態並發送字幕顯示請求
+        if self.current_state == SystemState.LLM_LOADING:
+            # 🔥 修改：LLM_LOADING 狀態超時時，所有模式都直接進入字幕狀態（與 on_llm_complete 邏輯一致）
+            print("LLM_LOADING timeout: 直接進入CAPTION狀態")
             self.transition_to(SystemState.CAPTION)
-            # 發送字幕顯示請求信號
-            if self.pending_llm_response:
-                self.caption_display_requested.emit(self.pending_llm_response)
-            
+        elif self.current_state == SystemState.CAL_WINDOW_FADE:
+            self.transition_to(SystemState.DETECT_FRAME_FADE)
+        elif self.current_state == SystemState.DETECT_FRAME_FADE:
+            self.transition_to(SystemState.CAPTION)
         elif self.current_state == SystemState.RESET:
-            # 冷卻完成，返回偵測
             self.transition_to(SystemState.DETECTING)
             
-    def update_face_detection(self, face_detected):
+    def _perform_gc(self):
+        """定期執行垃圾回收"""
+        collected = gc.collect()
+        if collected > 0:
+            print(f"GC: Collected {collected} objects")
+            
+    def update_face_detection(self, detected):
         """更新人臉偵測狀態"""
         if self.current_state != SystemState.DETECTING:
             return
             
-        if face_detected and not self.face_detected:
-            # 開始偵測
-            self.face_detected = True
-            self.detection_start_time = time.time()
-            
-        elif not face_detected and self.face_detected:
-            # 偵測中斷
+        if detected:
+            if not self.face_detected:
+                self.face_detected = True
+                self.detection_start_time = time.time()
+            else:
+                # 檢查是否達到偵測時間
+                duration = time.time() - self.detection_start_time
+                required_duration = self.config.get('detect_duration', 3)
+                
+                if duration >= required_duration:
+                    self.transition_to(SystemState.SCREENSHOT_TRIGGER)
+        else:
             self.face_detected = False
             self.detection_start_time = None
             
-        elif face_detected and self.face_detected:
-            # 檢查是否達到觸發閾值
-            if self.detection_start_time:
-                elapsed = time.time() - self.detection_start_time
-                threshold = self.config.get('detect_duration', 3.0)
-                if elapsed >= threshold:
-                    self.transition_to(SystemState.SCREENSHOT_TRIGGER)
-                    
+    def get_detection_time(self):
+        """取得偵測時間"""
+        if self.detection_start_time and self.face_detected:
+            return time.time() - self.detection_start_time
+        return 0
+        
     def on_llm_complete(self, response):
-        """AI 分析完成"""
-        print(f"🔍 StateMachine.on_llm_complete: 當前狀態 = {self.current_state.value}")
-        if self.current_state == SystemState.LLM_LOADING:
-            # 暫存武器列表和 LLM 回應
+        """LLM 分析完成"""
+        # 暫存回應
+        self.pending_llm_response = response
+        
+        # 解析武器列表
+        if isinstance(response, dict):
             self.pending_weapons = response.get('weapons', [])
-            self.pending_llm_response = response
-            print(f"🎯 暫存武器列表: {self.pending_weapons}")
-            print(f"🎯 暫存 LLM 回應")
-            print(f"🔄 轉換到CAL_WINDOW_FADE狀態")
-            self.transition_to(SystemState.CAL_WINDOW_FADE)
         else:
-            print(f"⚠️ 警告: LLM完成時狀態機不在LLM_LOADING狀態，當前狀態: {self.current_state.value}")
+            self.pending_weapons = []
             
+        # 🔥 修改：所有模式都直接進入字幕狀態，實現平滑過渡
+        print(f"LLM分析完成，直接進入CAPTION狀態 (模式: {'機器人' if self.robot_mode else '人類'})")
+        self.transition_to(SystemState.CAPTION)
+                
     def on_caption_complete(self):
-        """字幕顯示完成（包括打字和等待）"""
-        print(f"🔍 StateMachine.on_caption_complete: 當前狀態 = {self.current_state.value}")
+        """字幕顯示完成"""
         if self.current_state == SystemState.CAPTION:
-            # 進入聚光燈狀態
-            print(f"🔄 轉換到SPOTLIGHT狀態")
             self.transition_to(SystemState.SPOTLIGHT)
-        else:
-            print(f"⚠️ 警告: 字幕完成時狀態機不在CAPTION狀態，當前狀態: {self.current_state.value}")
             
-    def on_spotlight_ready(self):
-        """聚光燈準備完成，可以顯示武器"""
+    def on_spotlight_complete(self):
+        """聚光燈完成"""
         if self.current_state == SystemState.SPOTLIGHT:
-            print(f"🎯 聚光燈準備完成，發送武器展示請求: {self.pending_weapons}")
             self.transition_to(SystemState.IMG_SHOW)
-            self.weapon_display_requested.emit(self.pending_weapons)
             
     def on_weapon_display_complete(self):
-        """武器展示完成"""
+        """武器顯示完成"""
         if self.current_state == SystemState.IMG_SHOW:
             self.transition_to(SystemState.RESET)
-            
-    def get_detection_time(self):
-        """獲取當前偵測時間"""
-        if self.face_detected and self.detection_start_time:
-            return time.time() - self.detection_start_time
-        return 0.0
+
