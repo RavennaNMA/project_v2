@@ -13,7 +13,7 @@ class ESP32Controller:
         self.port = 8080
         self.timeout = 5
    
-    def send_command(self, esp_name, command):
+    def send_command(self, esp_name, command): 
         """Send command to ESP32 and return response"""
         try:
             ip = self.esp32_configs[esp_name]['ip']
@@ -21,7 +21,7 @@ class ESP32Controller:
             sock.settimeout(self.timeout)
             sock.connect((ip, self.port))
            
-            sock.send((command + '\n').encode())
+            sock.send((command + '\n').encode())1
             response = sock.recv(1024).decode().strip()
             sock.close()
             return response

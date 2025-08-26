@@ -386,12 +386,20 @@ class MainWindow(QMainWindow):
                     weapon_info['wait_after']
                 )
             
-            # 🔥 修復：不論是否為no_esp32_mode，都使用LightingController來處理武器燈光
-            # LightingController已經內建支援no_esp32_mode的模擬顯示和OSC發送
             self.lighting_controller.activate_weapon_light(weapon_id, weapon_info['high_time'])
                     
             self.weapon_display_index += 1
-            total_time = weapon_info.get('wait_before', 0) + weapon_info.get('high_time', 1000) + weapon_info.get('wait_after', 500)
+            
+            # 使用圖片顯示時間而不是硬體控制時間
+            image_fade_in = weapon_info.get('image_fade_in', 1.0) * 1000
+            image_display = weapon_info.get('image_display', 3.0) * 1000
+            image_fade_out = weapon_info.get('image_fade_out', 1.0) * 1000
+            
+            # 計算總的圖片顯示時間
+            total_time = int(image_fade_in + image_display + image_fade_out)
+            
+            print(f"武器切換時間: {total_time}ms (淡入:{image_fade_in}ms + 顯示:{image_display}ms + 淡出:{image_fade_out}ms)")
+            
             QTimer.singleShot(total_time, self.display_next_weapon)
         else:
             self.weapon_display_index += 1
@@ -404,7 +412,7 @@ class MainWindow(QMainWindow):
         print(f"State changed to: {state.value}")
         
         if state == SystemState.DETECTING:
-            # 🔥 重新顯示攝影機即時畫面
+
             self.camera_label.show()
             self.camera_label.lower()  # 確保相機在最底層
             
