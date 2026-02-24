@@ -12,9 +12,9 @@ LLM 回應最大等待時間,llm_response_timeout,15,等待AI回應的最長時�
 打字速度（毫秒/字）,caption_typing_speed,50,字幕打字機效果速度
 每行字符限制,caption_max_chars_per_line,75,每行最大字符數（權重單位）
 中文字符權重,caption_chinese_char_weight,2,中文字符相對英文的權重
-字幕顯示後等待,caption_wait_after,8,幕打完後等待時間
-武器切換等待時間,weapon_switch_delay,0.5,切換武器之間的等待時間
+字幕顯示後等待,caption_wait_after,5,幕打完後等待時間
+武器切換等待時間,weapon_switch_delay,3,切換武器之間的等待時間
 轉場_從截圖淡入武器,shot_to_weapon_transition,2,從截圖過渡到武器的時間
-間隔_切換圖片的等待時間,image_switch_wait,1,圖片之間的切換等待
-偵測重啟冷卻時間,cooldown_time,5,系統重置後的等待時間
-ESP32 C自動關閉時間,esp32c_auto_off_time,10,DETECTING狀態中ESP32 C G4自動關閉的時間（秒）
+間隔_切換圖片的等待時間,image_switch_wait,2.5,圖片之間的切換等待
+偵測重啟冷卻時間,cooldown_time,12,系統重置後的等待時間
+ESP32 C自動關閉時間,esp32c_auto_off_time,400,DETECTING狀態中ESP32 C G4自動關閉的時間（秒）

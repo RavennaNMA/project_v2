@@ -2,9 +2,14 @@
 角色描述：{image_description}
 可選武器：{weapon_list}
 
-請根據提供的人物描述，觀察其身材特徵、穿著風格、裝備內容與姿態細節，推測其在戰場上的弱點與潛在威脅。選擇完全不同以往回應所選的三項武器，說明選擇理由與使用策略，並設計具敘事性且邏輯合理的創意生存策略。
+請根據提供的人物描述，觀察其身材特徵、穿著風格、裝備內容與姿態細節，推測其在戰場上的弱點與潛在威脅。
+選擇完全不同以往回應所選的三項武器，其中至少一項必須來自 [05, 06, 07]。
+
+說明選擇理由與使用策略，並設計具敘事性且邏輯合理的創意生存策略。
 要包含：具體威脅類型、弱點分析、武器選擇理由、武器使用方式與戰術流程。
-Caption_TC（繁體中文）與 Caption_EN（英文）必須句數完全對齊，一對一語意對應。各段不得不得超過80字。只生成一組 Caption_TC、Caption_EN 與 Weapons，不得產出多組版本。
+
+Caption_TC（繁體中文）與 Caption_EN（英文）必須句數完全對齊，一對一語意對應。
+各段不得不得超過80字。只生成一組 Caption_TC、Caption_EN 與 Weapons，不得產出多組版本。
 
 範例：
 Caption_TC: 他體型高大但負重明顯，行動時容易產生聲響，成為敵方聲波與熱感應鎖定的目標。建議攜帶小型機動電磁炮、高壓電磁模組與書本防彈。小型機動電磁炮輕便且適合快速部署，有助於他在移動中維持火力輸出。高壓電磁模組可在敵人鎖定前先行癱瘓感測器。書本防彈則能用於近身防禦，或當作快速屏障，爭取反擊時間。
@@ -12,9 +17,9 @@ Caption_EN: He is tall and heavily burdened, making him vulnerable to sound and 
 Weapons: [07, 03, 04]
 
 範例2：
-Caption_TC: 這位女士身形單薄，穿著不利於逃跑的服裝，在戰場中容易成為目標。建議她攜帶閃光燈、鍋子與剪刀。閃光燈可用於迷惑敵人或製造短暫脫逃的機會。鍋子既可作為反射聲波的工具，也能作為近戰盾牌。剪刀則是兼具攻擊與求生的工具，在被包圍時可作為最後手段使用，也能處理緊急繃帶等狀況。
-Caption_EN: This woman is slender, with clothing not suited for running, making it difficult for her to quickly escape. She should bring a sniper rifle, high-voltage electromagnetic module, and a towel. To avoid exposing herself, she should stay away from the battle and use the sniper rifle to attack enemies from a distance. The high-voltage electromagnetic module can be used to disable enemy equipment, while the towel can wrap wounds to prevent excessive bleeding.
-Weapons: [02, 08, 10]
+Caption_TC: 這位女士身形單薄，穿著不利於逃跑的服裝，在戰場中容易成為目標。建議她攜帶狙擊電磁炮、高壓電磁模組與毛巾。狙擊電磁炮適合遠距離攻擊，能讓她避免暴露。高壓電磁模組可在敵人接近前癱瘓裝備。毛巾則能用於包紮止血，也能臨時作為干擾物，爭取逃脫時間。  
+Caption_EN: This woman is slender, with clothing not suited for running, making it difficult for her to quickly escape. She should bring a sniper railgun, high-voltage electromagnetic module, and a towel. The sniper railgun is ideal for long-range attacks, allowing her to avoid exposure. The electromagnetic module disables enemy gear before they approach. The towel can wrap wounds to stop bleeding or serve as a distraction to gain escape time.  
+Weapons: [06, 08, 10]  
 
 請嚴格遵守以下格式回覆，每段不超過80字：
 Caption_TC: [繁體中文，具體描述人物的弱點，可能面對的威脅，推薦的武器，武器使用策略，創意的生存策略。不能含英文字或數字]
@@ -24,4 +29,5 @@ Weapons: [3項武器代號，例如 01, 02, 03]
 
 在 Caption_TC 與 Caption_EN 中，禁止出現武器編號、代號、數字、括號或 "Type" 等附註。
 只能在最後 Weapons 欄位列出正確的三個武器代號。
+
 

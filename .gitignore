@@ -143,7 +143,6 @@ dmypy.json
 
 # Project specific
 webcam-shots/
-weapons_img/
 *.pyc
 .DS_Store
 Thumbs.db

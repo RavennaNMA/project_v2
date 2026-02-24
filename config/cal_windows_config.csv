@@ -5,7 +5,7 @@ BASIC,max_windows_per_face,8,每個臉部最大窗口數量
 BASIC,spawn_delay_frames,3,生成延遲幀數
 BASIC,min_life,400,窗口最小生命值
 BASIC,max_life,800,窗口最大生命值
-BASIC,connection_alpha,50,連接線透明度 (0-255)
+BASIC,connection_alpha,80,連接線透明度 (0-255)
 BASIC,window_alpha,50,窗口透明度 (0-255)
 BASIC,stable_connection_lines,True,使用穩定的連接線（避免抖動）
 BASIC,line_smooth_factor,0.8,連接線平滑度 (0.5-1.0)
@@ -28,7 +28,7 @@ VISUAL,size_multiplier_max,1.1,窗口大小倍數最大值
 VISUAL,line_thickness,1.0,線條粗細
 VISUAL,inner_alpha,50,內部填充透明度 (0-255)
 VISUAL,sphere_radius,2,球體點半徑 (像素)
-VISUAL,sphere_alpha,120,球體點透明度 (0-255)
+VISUAL,sphere_alpha,50,球體點透明度 (0-255)
 VISUAL,sphere_thickness,1,球體點線條粗細
 ANIMATION,content_animation_speed,0.0003,內容動畫速度
 ANIMATION,frame_count_global,True,使用全域幀計數

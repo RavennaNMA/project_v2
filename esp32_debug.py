@@ -21,7 +21,7 @@ class ESP32Controller:
             sock.settimeout(self.timeout)
             sock.connect((ip, self.port))
            
-            sock.send((command + '\n').encode())1
+            sock.send((command + '\n').encode())
             response = sock.recv(1024).decode().strip()
             sock.close()
             return response

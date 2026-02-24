@@ -35,7 +35,7 @@ STATE1,line_thickness,1,線條粗細(像素)
 # 狀態2設定 - 內框出現
 STATE2,outside_smooth,0.5,外框尺寸變化的平滑度
 STATE2,inner_smooth,0.2,內框尺寸變化的平滑度
-STATE2,inner_alpha,50,內框透明度(0-255)
+STATE2,inner_alpha,30,內框透明度(0-255)
 STATE2,inner_size_ratio,0.9,內框相對於外框的尺寸比例(0-1)
 STATE2,corner_length_ratio,0.07,角落線條長度比例
 STATE2,line_thickness,1,線條粗細
@@ -48,7 +48,7 @@ STATE3,cross_length_ratio_h,0.59,十字線垂直長度比例(0-1)
 STATE3,cross_length_ratio_w,0.55,十字線水平長度比例(0-1)
 STATE3,corner_length_ratio,0.07,角落線條長度比例
 STATE3,line_thickness,1.25,線條粗細
-STATE3,inner_alpha,50,內框透明度
+STATE3,inner_alpha,20,內框透明度
 STATE3,inner_size_ratio,0.9,內框尺寸比例
 
 # 狀態4設定 - 十字線完全延伸
@@ -65,7 +65,7 @@ STATE4,line_thickness,1.5,線條粗細
 VISUAL,color_r,255,紅色分量(0-255)
 VISUAL,color_g,255,綠色分量(0-255)
 VISUAL,color_b,255,藍色分量(0-255)
-VISUAL,alpha,200,整體透明度(0-255)
+VISUAL,alpha,255,整體透明度(0-255)
 VISUAL,flicker_probability,0.1,閃爍機率(0.0-1.0)
 
 # 位置控制
@@ -85,7 +85,7 @@ BASIC,max_life,400,窗口最大生命值(幀)
 BASIC,window_alpha,180,窗口透明度(0-255)
 BASIC,window_smooth_factor,0.15,窗口位置平滑因子(0.0-1.0)
 BASIC,spawn_point_smooth_factor,0.12,生成點平滑因子(0.0-1.0)
-BASIC,connection_alpha,120,連接線透明度(0-255)
+BASIC,connection_alpha,180,連接線透明度(0-255)
 BASIC,stable_connection_lines,True,使用穩定連接線
 BASIC,line_smooth_factor,0.8,連接線平滑因子(0.0-1.0)
 BASIC,spawn_rate,0.1,生成機率(0.0-1.0)

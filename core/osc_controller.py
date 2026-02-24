@@ -19,7 +19,7 @@ class OSCConfig:
     B_PORT = 7001
     
     # C電腦（接收燈光控制）
-    C_IP = "192.168.0.64"
+    C_IP = "127.0.0.1"
     C_PORT = 7002
 
 

@@ -265,6 +265,7 @@ class LightingController(QObject):
     def set_detecting_lighting(self):
         """設置偵測/LLM載入狀態的燈光 - ESP32 B 和 ESP32 C 全HIGH"""
         # 設置偵測狀態燈光
+        print("🔥 LightingController: set_detecting_lighting 被調用")
         
         if self.no_esp32_mode:
             # 模擬模式
@@ -272,9 +273,9 @@ class LightingController(QObject):
             for i, pin in enumerate(self.all_esp32b_pins, 1):
                 self.simulated_states['B'][pin] = 'HIGH'
                 self.debug_message.emit(f"[SIM] ESP32 B G{pin} -> HIGH (/light {i} 1)")
-            # ESP32 C: G4 HIGH
-            self.simulated_states['C'][4] = 'HIGH'
-            self.debug_message.emit("[SIM] ESP32 C G4 -> HIGH")
+            # 🔥 修復：ESP32 C 由 main_window 管理計時器，模擬模式也跳過
+            print("🔥 LightingController: ESP32 C 由 main_window 管理，模擬模式跳過設置")
+            self.debug_message.emit("[SIM] ESP32 C G4 -> 由 main_window 管理計時器")
         else:
             # 實際控制
             if self.esp32:
@@ -282,9 +283,10 @@ class LightingController(QObject):
                 for i, pin in enumerate(self.all_esp32b_pins, 1):
                     self.esp32.set_esp32_pin_state('B', pin, 'HIGH', 0)
                     self.debug_message.emit(f"ESP32 B G{pin} -> HIGH (/light {i} 1)")
-                # ESP32 C: G4 HIGH
-                self.esp32.set_esp32_pin_state('C', 4, 'HIGH', 0)
-                self.debug_message.emit("ESP32 C G4 -> HIGH")
+                
+                # 🔥 修復：ESP32 C 由 main_window 管理計時器，lighting_controller 不再控制
+                print("🔥 LightingController: ESP32 C 由 main_window 管理，跳過設置")
+                self.debug_message.emit("ESP32 C G4 -> 由 main_window 管理計時器")
                     
         # OSC: 所有燈開啟
         if self.osc_controller:
@@ -516,16 +518,14 @@ class LightingController(QObject):
                     self.esp32.set_esp32_pin_state('B', pin, 'HIGH', 0)
                     self.debug_message.emit(f"ESP32 B G{pin} -> HIGH (/light {i} 1)")
         
-        # ESP32 C: G4 開啟 (HIGH)
+        # 🔥 修復：ESP32 C 由 main_window 管理計時器，reset_lighting 不再控制
+        print("🔥 LightingController: reset_lighting - ESP32 C 由 main_window 管理")
         if self.no_esp32_mode:
             # 模擬模式
-            self.simulated_states['C'][4] = 'HIGH'
-            self.debug_message.emit("[SIM] ESP32 C G4 -> HIGH")
+            self.debug_message.emit("[SIM] ESP32 C G4 -> 由 main_window 管理")
         else:
             # 實際控制
-            if self.esp32:
-                self.esp32.set_esp32_pin_state('C', 4, 'HIGH', 0)
-                self.debug_message.emit("ESP32 C G4 -> HIGH")
+            self.debug_message.emit("ESP32 C G4 -> 由 main_window 管理")
         
         # OSC: 所有燈開啟
         if self.osc_controller:
@@ -533,8 +533,8 @@ class LightingController(QObject):
                 self.osc_controller.send_light_command(i, True)
                 self.debug_message.emit(f"OSC: /light {i} 1")
         
-        # 啟動ESP32 C G4的10秒自動關閉計時器
-        self.start_esp32c_auto_off_timer()
+        # 🔥 修復：不再啟動 lighting_controller 的計時器，由 main_window 管理
+        print("🔥 LightingController: ESP32 C 計時器由 main_window 管理，跳過啟動")
     
     def start_esp32c_auto_off_timer(self):
         """啟動ESP32 C G4的10秒自動關閉計時器"""

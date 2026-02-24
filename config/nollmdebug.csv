@@ -4,5 +4,4 @@
 調試武器1,debug_weapon_1,01,第一個顯示的武器編號
 調試武器2,debug_weapon_2,02,第二個顯示的武器編號  
 調試武器3,debug_weapon_3,03,第三個顯示的武器編號
-模擬Arduino控制,debug_arduino_enabled,false,noneed
 顯示調試信息,debug_verbose,true,是否顯示詳細的調試日誌 

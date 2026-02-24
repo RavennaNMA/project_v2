@@ -3,14 +3,18 @@
 機器人描述：{image_description}
 可選武器：{weapon_list}
 
-請根據機器人的結構特徵、感測器配置、移動方式等，推測其在戰場上的弱點與潛在威脅。選擇三項完全不同以往回應所選的武器，說明選擇理由與使用策略，並設計具敘事性且邏輯合理的創意生存策略。
+請根據機器人的結構特徵、感測器配置、移動方式等，推測其在戰場上的弱點與潛在威脅。
+選擇完全不同以往回應所選的三項武器，其中至少一項必須來自 [05, 06, 07]。
+
+說明選擇理由與使用策略，並設計具敘事性且邏輯合理的創意生存策略。
 要包含：具體威脅類型、弱點分析、武器選擇理由、武器使用方式與戰術流程。
+
 Caption_TC（繁體中文）與 Caption_EN（英文）必須句數完全對齊，一對一語意對應。各段不得超過80字。
 只生成一組 Caption_TC、Caption_EN 與 Weapons，不得產出多組版本。
 
-Caption_TC: 這台雙足輕型機器人行動迅速，但外殼薄弱且感測器過度依賴光學。建議攜帶閃光燈、鍋子與剪刀。閃光燈能干擾敵方追蹤系統並製造突圍空檔。鍋子既能反射聲波干擾定位，也可作為近戰防護盾。剪刀則能破壞纜線或製造臨時陷阱。整體策略以干擾、格擋與環境操控為核心，使其在混亂中延長生存並反擊。
-Caption_EN: This bipedal light robot moves swiftly but has thin armor and relies heavily on optical sensors. Recommended tools: flash device, pot, and scissors. The flash blinds enemy trackers, opening escape routes. The pot reflects sonar to disrupt detection and doubles as a defensive shield. The scissors cut cables or shape traps from debris. The strategy emphasizes disruption, shielding, and environmental manipulation, extending survival and enabling counterattacks amid chaos.
-Weapons: [02, 08, 10]
+Caption_TC: 這台雙足輕型機器人行動迅速，但外殼薄弱且感測器過度依賴光學。建議攜帶狙擊電磁炮、鍋子與剪刀。狙擊電磁炮能提供遠程精準火力，削弱追擊威脅。鍋子既能反射聲波干擾定位，也可作為近戰防護盾。剪刀則能破壞纜線或製造臨時陷阱。整體策略以遠距狙擊、干擾與環境操控為核心，使其在混亂中延長生存並反擊。  
+Caption_EN: This bipedal light robot moves swiftly but has thin armor and relies heavily on optical sensors. Recommended tools: sniper railgun, pot, and scissors. The sniper railgun provides long-range precision fire, reducing pursuit threats. The pot reflects sonar to disrupt detection and doubles as a defensive shield. The scissors cut cables or create improvised traps. The strategy emphasizes long-range strikes, disruption, and environmental manipulation, extending survival and enabling counterattacks amid chaos.  
+Weapons: [06, 08, 10]  
 
 在 Caption_TC 與 Caption_EN 中，禁止出現武器編號、代號、數字、括號或 "Type" 等附註。
 只能在最後 Weapons 欄位列出正確的三個武器代號。
